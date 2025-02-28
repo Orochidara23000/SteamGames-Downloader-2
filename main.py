@@ -91,98 +91,36 @@ def check_steamcmd():
     return result
 
 def install_steamcmd():
-    os_type = platform.system()
-    logging.info(f"Installing SteamCMD for {os_type}")
+    logging.info("Installing SteamCMD for Linux")
+    steamcmd_path = "/app/steamcmd/steamcmd.sh"
     
-    try:
-        # Clean up any existing installation
-        steamcmd_dir = os.path.dirname(get_steamcmd_path())
-        if os.path.exists(steamcmd_dir):
-            logging.info(f"Removing existing SteamCMD directory: {steamcmd_dir}")
-            shutil.rmtree(steamcmd_dir)
-        
-        os.makedirs(steamcmd_dir, exist_ok=True)
-        
-        if os_type == "Windows":
-            url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
-            logging.info(f"Downloading SteamCMD from {url}")
-            response = requests.get(url, timeout=30)
-            
-            with open("steamcmd.zip", "wb") as f:
-                f.write(response.content)
-            
-            logging.info("Extracting SteamCMD zip file")
-            with zipfile.ZipFile("steamcmd.zip", "r") as zip_ref:
-                zip_ref.extractall(steamcmd_dir)
-            
-            os.remove("steamcmd.zip")
-            
-        elif os_type == "Linux" or os_type == "Darwin":  # Linux or macOS
-            url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
-            logging.info(f"Downloading SteamCMD from {url}")
-            response = requests.get(url, timeout=30)
-            
-            with open("steamcmd.tar.gz", "wb") as f:
-                f.write(response.content)
-            
-            logging.info("Extracting SteamCMD tar.gz file")
-            try:
-                with tarfile.open("steamcmd.tar.gz", "r:gz") as tar:
-                    tar.extractall(path=steamcmd_dir)
-            except Exception as e:
-                logging.error(f"Error extracting with tarfile: {str(e)}")
-                logging.info("Trying alternative extraction method")
-                # Alternative extraction method using subprocess
-                subprocess.run(["mkdir", "-p", steamcmd_dir], check=True)
-                subprocess.run(["tar", "-xzf", "steamcmd.tar.gz", "-C", steamcmd_dir], check=True)
-            
-            os.remove("steamcmd.tar.gz")
-            
-            # Make the script executable
-            steamcmd_script = os.path.join(steamcmd_dir, "steamcmd.sh")
-            if os.path.exists(steamcmd_script):
-                os.chmod(steamcmd_script, 0o755)
-                logging.info("Made steamcmd.sh executable")
-            else:
-                error_msg = f"steamcmd.sh not found after extraction at {steamcmd_script}"
-                logging.error(error_msg)
-                return error_msg
-        else:
-            error_msg = f"Unsupported OS: {os_type}"
-            logging.error(error_msg)
-            return error_msg
-        
-        # Run SteamCMD once to update itself
-        logging.info("Running SteamCMD for the first time to complete installation")
-        steamcmd_path = get_steamcmd_path()
-        if os.path.exists(steamcmd_path):
-            try:
-                proc = subprocess.run(
-                    [steamcmd_path, "+quit"], 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE, 
-                    timeout=60
-                )
-                if proc.returncode != 0:
-                    logging.warning(f"SteamCMD initial run returned non-zero exit code: {proc.returncode}")
-                    logging.warning(f"stderr: {proc.stderr.decode('utf-8', errors='ignore')}")
-                else:
-                    logging.info("SteamCMD initial run completed successfully")
-                
-                return "SteamCMD installed successfully."
-            except subprocess.TimeoutExpired:
-                logging.error("SteamCMD initial run timed out")
-                return "SteamCMD installation timed out. Please try again."
-            except Exception as e:
-                logging.error(f"Error during SteamCMD initial run: {str(e)}")
-                return f"Error during SteamCMD initial run: {str(e)}"
-        else:
-            error_msg = f"SteamCMD executable not found at {steamcmd_path}"
-            logging.error(error_msg)
-            return error_msg
-    except Exception as e:
-        logging.error(f"Error installing SteamCMD: {str(e)}")
-        return f"Error installing SteamCMD: {str(e)}"
+    # Remove existing SteamCMD directory if it exists
+    if os.path.exists("/app/steamcmd"):
+        logging.info(f"Removing existing SteamCMD directory: /app/steamcmd")
+        shutil.rmtree("/app/steamcmd")
+    
+    # Download and extract SteamCMD
+    logging.info(f"Downloading SteamCMD from https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
+    response = requests.get("https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
+    with open("/app/steamcmd/steamcmd_linux.tar.gz", "wb") as f:
+        f.write(response.content)
+    
+    logging.info("Extracting SteamCMD tar.gz file")
+    with tarfile.open("/app/steamcmd/steamcmd_linux.tar.gz", "r:gz") as tar:
+        tar.extractall(path="/app/steamcmd")
+    
+    # Make the steamcmd.sh executable
+    os.chmod(steamcmd_path, 0o755)
+    logging.info("Made steamcmd.sh executable")
+    
+    # Run SteamCMD for the first time
+    logging.info("Running SteamCMD for the first time to complete installation")
+    os.system(steamcmd_path + " +quit")
+    
+    logging.info("SteamCMD initial run completed successfully")
+    
+    # Return two outputs, for example, a success message and the path
+    return "SteamCMD installed successfully.", steamcmd_path  # Adjust as needed
 
 def parse_game_input(input_str):
     logging.info(f"Parsing game input: {input_str}")
