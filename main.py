@@ -722,6 +722,86 @@ def get_game_details(game_input):
     
     return {"success": True, "appid": appid, "game_info": game_info}
 
+def create_download_games_tab():
+    with gr.Tab("Download Games"):
+        gr.Markdown("### Game Information")
+        
+        with gr.Row():
+            with gr.Column(scale=3):
+                game_input = gr.Textbox(
+                    label="Game ID or Steam Store URL",
+                    placeholder="Enter AppID (e.g., 570) or Steam store URL",
+                    info="Tip: The AppID is the number in the URL of a Steam store page"
+                )
+                
+            with gr.Column(scale=1):
+                check_game_btn = gr.Button("Check Game", variant="secondary")
+        
+        # Game details display
+        with gr.Row(visible=False) as game_details_row:
+            with gr.Column(scale=1):
+                game_image = gr.Image(label="Game Image", type="filepath", interactive=False)
+            
+            with gr.Column(scale=2):
+                game_title = gr.Textbox(label="Game Title", interactive=False)
+                game_description = gr.Textbox(label="Description", interactive=False)
+                game_metadata = gr.Dataframe(
+                    headers=["Property", "Value"],
+                    interactive=False
+                )
+        
+        gr.Markdown("### Download Options")
+        
+        with gr.Row():
+            with gr.Column():
+                with gr.Group():
+                    gr.Markdown("#### Login Method")
+                    anonymous = gr.Checkbox(label="Anonymous Login (Free Games Only)", value=True)
+                    
+                    with gr.Group(visible=False) as login_details:
+                        username = gr.Textbox(label="Steam Username")
+                        password = gr.Textbox(label="Steam Password", type="password")
+                        guard_code = gr.Textbox(
+                            label="Steam Guard Code (if applicable)", 
+                            placeholder="Leave empty if not using Steam Guard"
+                        )
+            
+            with gr.Column():
+                with gr.Group():
+                    gr.Markdown("#### Download Settings")
+                    validate_download = gr.Checkbox(
+                        label="Validate Files After Download", 
+                        value=True,
+                        info="Ensures all files are correctly downloaded"
+                    )
+                    debug_mode = gr.Checkbox(
+                        label="Debug Mode", 
+                        value=False,
+                        info="Verbose logging for troubleshooting"
+                    )
+                    download_path = gr.Textbox(
+                        label="Download Path", 
+                        value=get_default_download_location(),
+                        info="Location where games will be installed"
+                    )
+        
+        download_btn = gr.Button("Download Game", variant="primary")
+        download_status = gr.Markdown("Enter a game ID or URL and click 'Check Game' to start")
+        
+        # Function to update UI when game is checked
+        def check_game(game_id):
+            details = get_game_details(game_id)
+            # ... (rest of the function implementation)
+        
+        # Connect events
+        check_game_btn.click(
+            check_game,
+            inputs=[game_input],
+            outputs=[game_details_row, game_title, game_description, game_metadata, game_image, download_status]
+        )
+        
+        return game_input, check_game_btn, download_btn, download_status
+
 def create_gradio_interface():
     with gr.Blocks(title="Steam Game Downloader", theme=gr.themes.Soft()) as app:
         gr.Markdown("# Steam Game Downloader")
@@ -768,7 +848,7 @@ def create_gradio_interface():
                         
                         refresh_system_btn.click(fn=update_system_info, outputs=[system_info])
             
-            # Add the improved Download Games tab
+            # Call the create_download_games_tab function here
             game_input, check_game_btn, download_btn, download_status = create_download_games_tab()
             
             # Add the improved Downloads tab
