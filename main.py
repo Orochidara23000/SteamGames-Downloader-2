@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import shutil
 import psutil
 import uvicorn
+from fastapi import FastAPI
 
 
 # Set up logging to both file and stdout
@@ -40,6 +41,14 @@ queue_lock = threading.Lock()
 
 # Environment variable handling for containerization
 STEAM_DOWNLOAD_PATH = os.environ.get('STEAM_DOWNLOAD_PATH')
+
+# Global variable to store the share URL
+SHARE_URL = ""
+
+def update_share_url(share_url):
+    global SHARE_URL
+    SHARE_URL = share_url
+    logging.info(f"Gradio share URL updated: {share_url}")
 
 def get_default_download_location():
     # First check for environment variable (for containerization)
