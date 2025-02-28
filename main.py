@@ -48,11 +48,6 @@ SHARE_URL = ""
 # Define your FastAPI app here
 fastapi_app = FastAPI()
 
-# Health check endpoint
-@fastapi_app.get("/")
-def health_check():
-    return {"status": "healthy", "app": "Steam Downloader"}
-
 def update_share_url(share_url):
     global SHARE_URL
     SHARE_URL = share_url
@@ -97,29 +92,22 @@ def check_steamcmd():
 
 def install_steamcmd():
     logging.info("Installing SteamCMD for Linux")
-    steamcmd_dir = "/app/steamcmd"
-    steamcmd_path = os.path.join(steamcmd_dir, "steamcmd.sh")
+    steamcmd_path = "/app/steamcmd/steamcmd.sh"
     
     # Remove existing SteamCMD directory if it exists
-    if os.path.exists(steamcmd_dir):
-        logging.info(f"Removing existing SteamCMD directory: {steamcmd_dir}")
-        shutil.rmtree(steamcmd_dir)
+    if os.path.exists("/app/steamcmd"):
+        logging.info(f"Removing existing SteamCMD directory: /app/steamcmd")
+        shutil.rmtree("/app/steamcmd")
     
-    # Create the SteamCMD directory
-    os.makedirs(steamcmd_dir, exist_ok=True)  # Ensure the directory exists
-    
-    # Download SteamCMD
+    # Download and extract SteamCMD
     logging.info(f"Downloading SteamCMD from https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
     response = requests.get("https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
-    
-    # Write the downloaded content to the file
-    steamcmd_tar_path = os.path.join(steamcmd_dir, "steamcmd_linux.tar.gz")
-    with open(steamcmd_tar_path, "wb") as f:
+    with open("/app/steamcmd/steamcmd_linux.tar.gz", "wb") as f:
         f.write(response.content)
     
     logging.info("Extracting SteamCMD tar.gz file")
-    with tarfile.open(steamcmd_tar_path, "r:gz") as tar:
-        tar.extractall(path=steamcmd_dir)
+    with tarfile.open("/app/steamcmd/steamcmd_linux.tar.gz", "r:gz") as tar:
+        tar.extractall(path="/app/steamcmd")
     
     # Make the steamcmd.sh executable
     os.chmod(steamcmd_path, 0o755)
@@ -631,297 +619,156 @@ def get_game_details(game_input):
     
     return {"success": True, "appid": appid, "game_info": game_info}
 
-def create_improved_gradio_interface():
+def create_gradio_interface():
     with gr.Blocks(title="Steam Game Downloader") as app:
         gr.Markdown("# Steam Game Downloader")
         gr.Markdown("Download Steam games directly using SteamCMD")
         
-        # Create a state container for persistent data
-        state = gr.State({
-            "refresh_active": True,
-            "last_refresh": time.time()
-        })
-        
-        # Setup Tab
         with gr.Tab("Setup"):
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("### SteamCMD Installation")
                     steamcmd_status = gr.Textbox(label="SteamCMD Status", value=check_steamcmd(), interactive=False)
-                    install_btn = gr.Button("Install/Update SteamCMD", variant="primary")
+                    install_btn = gr.Button("Install/Update SteamCMD")
                     install_output = gr.Textbox(label="Installation Output", interactive=False)
                     
                     install_btn.click(
                         fn=install_steamcmd,
-                        outputs=[install_output, steamcmd_status],
-                        api_name="install_steamcmd"
+                        outputs=[install_output, steamcmd_status]
                     )
                 
                 with gr.Column():
                     gr.Markdown("### Download Settings")
-                    download_path = gr.Textbox(label="Download Location", value=get_default_download_location(), interactive=False)
-                    
-                    # Get current disk space
-                    def get_disk_space():
-                        path = get_default_download_location()
-                        try:
-                            free_space = psutil.disk_usage(path).free / (1024**3)
-                            return f"{free_space:.2f} GB free at {path}"
-                        except Exception as e:
-                            return f"Error checking disk space: {str(e)}"
-                    
+                    download_path = gr.Textbox(label="Download Location", value=get_default_download_location())
                     disk_space = gr.Textbox(
                         label="Available Disk Space",
-                        value=get_disk_space(),
+                        value=f"{psutil.disk_usage(get_default_download_location()).free / (1024**3):.2f} GB",
                         interactive=False
                     )
                     
                     refresh_space_btn = gr.Button("Refresh Disk Space")
+                    
+                    def update_disk_space():
+                        return f"{psutil.disk_usage(get_default_download_location()).free / (1024**3):.2f} GB"
+                    
                     refresh_space_btn.click(
-                        fn=get_disk_space,
-                        outputs=[disk_space],
-                        api_name="refresh_disk_space"
+                        fn=update_disk_space,
+                        outputs=[disk_space]
                     )
         
-        # Download Games Tab
         with gr.Tab("Download Games"):
             with gr.Row():
-                with gr.Column(scale=1):
+                with gr.Column():
                     gr.Markdown("### Game Details")
-                    game_input = gr.Textbox(
-                        label="Game ID or Steam Store URL", 
-                        placeholder="Enter App ID (e.g., 570) or Steam store URL"
-                    )
-                    check_game_btn = gr.Button("Check Game", variant="secondary")
-                    
-                    # Improved game info display with HTML formatting
-                    game_info_html = gr.HTML(label="Game Information")
-                    
-                    # Convert JSON game info to formatted HTML
-                    def format_game_info(response):
-                        if not response["success"]:
-                            return f"<div style='color: red;'><b>Error:</b> {response['error']}</div>"
-                        
-                        game = response["game_info"]
-                        html = f"""
-                        <div style='padding: 10px; border: 1px solid #ddd; border-radius: 5px;'>
-                            <h3>{game.get('name', 'Unknown Game')}</h3>
-                            <p><b>App ID:</b> {response["appid"]}</p>
-                            <p><b>Free Game:</b> {"Yes" if game.get('is_free', False) else "No"}</p>
-                            <p><b>Developers:</b> {', '.join(game.get('developers', ['Unknown']))}</p>
-                            <p><b>Publishers:</b> {', '.join(game.get('publishers', ['Unknown']))}</p>
-                            <p><b>Categories:</b> {', '.join(game.get('categories', ['Unknown']))}</p>
-                        </div>
-                        """
-                        return html
+                    game_input = gr.Textbox(label="Game ID or Steam Store URL")
+                    check_game_btn = gr.Button("Check Game")
+                    game_info = gr.JSON(label="Game Information")
                     
                     check_game_btn.click(
-                        fn=lambda x: format_game_info(get_game_details(x)),
+                        fn=get_game_details,
                         inputs=[game_input],
-                        outputs=[game_info_html],
-                        api_name="check_game"
+                        outputs=[game_info]
                     )
                 
-                with gr.Column(scale=1):
+                with gr.Column():
                     gr.Markdown("### Login Information")
-                    with gr.Group():
-                        anonymous_login = gr.Checkbox(
-                            label="Use Anonymous Login (for free games only)", 
-                            value=True
-                        )
-                        
-                        with gr.Group(visible=False) as login_group:
-                            username = gr.Textbox(label="Steam Username")
-                            password = gr.Textbox(label="Steam Password", type="password")
-                            guard_code = gr.Textbox(
-                                label="Steam Guard Code (if required)",
-                                placeholder="Leave empty if not needed"
-                            )
-                        
-                        # Toggle login fields visibility
-                        def toggle_login_fields(anonymous):
-                            return gr.Group.update(visible=not anonymous)
-                        
-                        anonymous_login.change(
-                            fn=toggle_login_fields,
-                            inputs=[anonymous_login],
-                            outputs=[login_group]
-                        )
-                        
-                        validate_download = gr.Checkbox(
-                            label="Validate Download (Recommended)", 
-                            value=True,
-                            info="Ensures all game files are properly downloaded"
-                        )
+                    anonymous_login = gr.Checkbox(label="Use Anonymous Login (for free games only)", value=True)
+                    username = gr.Textbox(label="Steam Username", interactive=True)
+                    password = gr.Textbox(label="Steam Password", type="password", interactive=True)
+                    guard_code = gr.Textbox(label="Steam Guard Code (if required)", interactive=True)
+                    validate_download = gr.Checkbox(label="Validate Download", value=True)
+                    
+                    def update_login_fields(anonymous):
+                        return [
+                            gr.Textbox.update(interactive=not anonymous),
+                            gr.Textbox.update(interactive=not anonymous),
+                            gr.Textbox.update(interactive=not anonymous)
+                        ]
+                    
+                    anonymous_login.change(
+                        fn=update_login_fields,
+                        inputs=[anonymous_login],
+                        outputs=[username, password, guard_code]
+                    )
             
             with gr.Row():
-                download_btn = gr.Button("Download Game", variant="primary", size="lg")
-                download_output = gr.Textbox(
-                    label="Download Status", 
-                    interactive=False
-                )
+                download_btn = gr.Button("Download Game", variant="primary")
+                download_output = gr.Textbox(label="Download Result", interactive=False)
             
             download_btn.click(
                 fn=queue_download,
                 inputs=[username, password, guard_code, anonymous_login, game_input, validate_download],
-                outputs=[download_output],
-                api_name="download_game"
+                outputs=[download_output]
             )
         
-        # Downloads Tab
         with gr.Tab("Downloads"):
-            # Status indicators
             with gr.Row():
-                with gr.Column(scale=1):
-                    cpu_indicator = gr.Label(label="CPU Usage")
-                with gr.Column(scale=1):
-                    memory_indicator = gr.Label(label="Memory Usage")
-                with gr.Column(scale=1):
-                    disk_indicator = gr.Label(label="Disk Usage")
+                with gr.Column():
+                    gr.Markdown("### Active Downloads")
+                    active_downloads_json = gr.JSON(label="Active Downloads")
+                    download_id = gr.Textbox(label="Download ID to Cancel")
+                    cancel_btn = gr.Button("Cancel Download")
+                    cancel_output = gr.Textbox(label="Cancel Result", interactive=False)
+                
+                with gr.Column():
+                    gr.Markdown("### Download Queue")
+                    queue_json = gr.JSON(label="Queue")
+                    queue_position = gr.Number(label="Queue Position to Remove", precision=0)
+                    remove_btn = gr.Button("Remove from Queue")
+                    remove_output = gr.Textbox(label="Remove Result", interactive=False)
             
-            # Active downloads
-            gr.Markdown("### Active Downloads")
-            with gr.Row():
-                # Use a more visual component for active downloads
-                active_downloads_table = gr.Dataframe(
-                    headers=["ID", "Game", "Progress", "Status", "ETA", "Runtime"],
-                    datatype=["str", "str", "number", "str", "str", "str"],
-                    col_count=(6, "fixed"),
-                    row_count=(5, "dynamic"),
-                    interactive=False
-                )
+            refresh_btn = gr.Button("Refresh Status")
+            system_stats = gr.JSON(label="System Statistics")
             
-            with gr.Row():
-                download_id_input = gr.Textbox(label="Download ID to Cancel")
-                cancel_btn = gr.Button("Cancel Download", variant="stop")
-                cancel_output = gr.Textbox(label="Operation Result", interactive=False)
-            
-            # Download queue
-            gr.Markdown("### Download Queue")
-            with gr.Row():
-                queue_table = gr.Dataframe(
-                    headers=["Position", "App ID", "Status"],
-                    datatype=["number", "str", "str"],
-                    col_count=(3, "fixed"),
-                    row_count=(5, "dynamic"),
-                    interactive=False
-                )
-            
-            with gr.Row():
-                queue_position = gr.Number(
-                    label="Queue Position to Remove", 
-                    precision=0,
-                    minimum=1
-                )
-                remove_btn = gr.Button("Remove from Queue", variant="secondary")
-            
-            # Refresh controls
-            with gr.Row():
-                refresh_btn = gr.Button("Refresh Status Now", variant="primary")
-                auto_refresh = gr.Checkbox(label="Auto-refresh (every 5 seconds)", value=True)
-            
-            # Format the status data for better display
-            def format_status_for_display():
+            def update_status():
                 status = get_download_status()
-                
-                # Format active downloads for table
-                active_data = []
-                for download in status["active"]:
-                    active_data.append([
-                        download["id"],
-                        download["name"],
-                        float(download["progress"]),
-                        download["status"],
-                        download["eta"],
-                        download["runtime"]
-                    ])
-                
-                # Format queue for table
-                queue_data = []
-                for item in status["queue"]:
-                    queue_data.append([
-                        item["position"],
-                        item["appid"],
-                        "Queued"
-                    ])
-                
-                # System stats
-                cpu = status["system"]["cpu_usage"]
-                memory = status["system"]["memory_usage"]
-                disk = status["system"]["disk_usage"]
-                
-                return active_data, queue_data, f"{cpu}%", f"{memory}%", f"{disk}%"
+                return [
+                    status["active"],
+                    status["queue"],
+                    status["system"]
+                ]
             
-            # Handle the auto-refresh toggle
-            def toggle_auto_refresh(state_data, enable_auto_refresh):
-                state_data["refresh_active"] = enable_auto_refresh
-                return state_data
-            
-            auto_refresh.change(
-                fn=toggle_auto_refresh,
-                inputs=[state, auto_refresh],
-                outputs=[state]
-            )
-            
-            # Manual refresh button
             refresh_btn.click(
-                fn=format_status_for_display,
-                outputs=[active_downloads_table, queue_table, cpu_indicator, memory_indicator, disk_indicator]
+                fn=update_status,
+                outputs=[active_downloads_json, queue_json, system_stats]
             )
             
-            # Cancel download button
             cancel_btn.click(
                 fn=cancel_download,
-                inputs=[download_id_input],
+                inputs=[download_id],
                 outputs=[cancel_output]
             )
             
-            # Remove from queue button
             remove_btn.click(
                 fn=remove_from_queue,
                 inputs=[queue_position],
-                outputs=[cancel_output]
+                outputs=[remove_output]
             )
             
-            # Interval function for auto-refresh
-            def check_auto_refresh(state_data):
-                current_time = time.time()
-                if state_data["refresh_active"] and (current_time - state_data["last_refresh"]) >= 5:
-                    state_data["last_refresh"] = current_time
-                    return state_data, True
-                return state_data, False
+            # Replace the problematic line with a proper interval
+            gr.Markdown("Status auto-refreshes every 5 seconds")
             
-            # Auto-refresh logic
-            auto_refresh_trigger = gr.Textbox(visible=False)
-            
+            # Set up auto-refresh with JavaScript instead
             app.load(
-                fn=check_auto_refresh,
-                inputs=[state],
-                outputs=[state, auto_refresh_trigger],
-                every=1  # Check every second if we need to refresh
-            )
-            
-            # When trigger fires, refresh the data
-            auto_refresh_trigger.change(
-                fn=lambda x: format_status_for_display() if x == "True" else None,
-                inputs=[auto_refresh_trigger],
-                outputs=[active_downloads_table, queue_table, cpu_indicator, memory_indicator, disk_indicator]
+                update_status,
+                inputs=None,
+                outputs=[active_downloads_json, queue_json, system_stats],
+                every=5  # Refresh every 5 seconds
             )
         
-        # Help Tab
         with gr.Tab("Help"):
             gr.Markdown("""
             ## Steam Game Downloader Help
             
             ### How to Use
-            1. **Setup Tab**: Verify SteamCMD installation and disk space
+            1. **Setup Tab**: Install SteamCMD if not already installed
             2. **Download Games Tab**: Enter a game ID or Steam store URL
-            3. Check login requirements (Anonymous for free games, or use credentials)
+            3. Choose login method (Anonymous for free games, or with credentials)
             4. Click "Download Game" to start or queue the download
             
             ### Finding Game IDs
             - The AppID is the number in the URL of a Steam store page
-            - Example: For `https://store.steampowered.com/app/570/Dota_2/` the AppID is `570`
+            - Example: For https://store.steampowered.com/app/570/Dota_2/ the AppID is 570
             
             ### Anonymous Login
             - Only works for free-to-play games and demos
@@ -933,95 +780,63 @@ def create_improved_gradio_interface():
             
             ### Download Management
             - Only one download runs at a time
-            - Additional downloads are queued automatically
+            - Additional downloads are queued
             - You can cancel active downloads or remove queued downloads
             
             ### Troubleshooting
             - If downloads fail, try reinstalling SteamCMD
             - Verify you have sufficient disk space
             - For paid games, ensure your credentials are correct
-            - Check the logs for detailed error information
             """)
+    
+    # Start background thread for processing queue
+    queue_thread = threading.Thread(target=queue_processor)
+    queue_thread.daemon = True
+    queue_thread.start()
     
     return app
 
-def start_health_check_server():
-    health_port = int(os.environ.get("HEALTH_PORT", 7861))
-    logging.info(f"Starting health check server on port {health_port}")
-    
-    config = uvicorn.Config(
-        fastapi_app, 
-        host="0.0.0.0", 
-        port=health_port, 
-        log_level="error"
-    )
-    server = uvicorn.Server(config)
-    
-    # Run the server in a separate thread
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    logging.info(f"Health check server running at http://0.0.0.0:{health_port}")
-
-def main():
-    # Ensure SteamCMD is installed
-    if not check_steamcmd():
-        logging.info("SteamCMD not found, attempting installation...")
-        install_steamcmd()
-    
-    # Create the Gradio interface
-    app_interface = create_improved_gradio_interface()
-    
-    # Get server settings from environment variables
-    port = int(os.environ.get("PORT", 7860))
-    server_name = os.environ.get("SERVER_NAME", "0.0.0.0")
-    
-    # Check if running in Railway
-    is_railway = "RAILWAY_STATIC_URL" in os.environ
-    
-    # Log deployment environment information
-    logging.info(f"Starting application on {server_name}:{port}")
-    if is_railway:
-        railway_url = os.environ.get("RAILWAY_STATIC_URL", "")
-        project_name = os.environ.get("RAILWAY_PROJECT_NAME", "")
-        logging.info(f"Running in Railway environment. Project: {project_name}")
-        if railway_url:
-            logging.info(f"Railway provided URL: {railway_url}")
-    
-    # Start health check server
-    start_health_check_server()
-    
-    # Launch Gradio with consistent settings
-    try:
-        # Disable share when running in Railway as we'll use Railway's URL
-        share = not is_railway
-
-        # Launch the Gradio interface
-        launch_info = app_interface.launch(
-            server_port=port, 
-            server_name=server_name, 
-            show_error=True,
-            share=share
-        )
-        
-        # Properly capture the share URL
-        if hasattr(launch_info, 'share_url') and launch_info.share_url:
-            update_share_url(launch_info.share_url)
-            logging.info(f"Gradio share URL: {launch_info.share_url}")
-        else:
-            # Provide Railway URL if available
-            if is_railway and railway_url:
-                public_url = railway_url
-                if not public_url.startswith("http"):
-                    public_url = f"https://{public_url}"
-                logging.info(f"Application accessible at: {public_url}")
-            else:
-                # Provide local URL
-                local_url = f"http://{server_name}:{port}" if server_name != "0.0.0.0" else f"http://localhost:{port}"
-                logging.info(f"Application accessible at: {local_url}")
-                logging.info(f"If deployed on a server, check your provider's dashboard for the public URL")
-    except Exception as e:
-        logging.error(f"Error launching Gradio interface: {str(e)}")
-        raise
+def queue_processor():
+    while True:
+        process_download_queue()
+        time.sleep(5)  # Check queue every 5 seconds
 
 if __name__ == "__main__":
-    main()
+    # Ensure SteamCMD is installed
+    if not check_steamcmd():
+        install_steamcmd()
+    
+    # Create the Gradio interface directly
+    app_interface = create_gradio_interface()
+    
+    # Start the FastAPI server for file serving in a separate thread
+    threading.Thread(
+        target=lambda: uvicorn.run(fastapi_app, host="0.0.0.0", port=8081),
+        daemon=True
+    ).start()
+    
+    port = int(os.getenv("PORT", 7861))
+    logging.info(f"Starting application on port {port}")
+    
+    # Launch Gradio and capture the return value
+    launch_info = app_interface.launch(
+        server_port=port, 
+        server_name="0.0.0.0", 
+        share=True, 
+        prevent_thread_lock=True,
+        show_error=True
+    )
+    
+    # Check if launch_info has a share_url attribute
+    if hasattr(launch_info, 'share_url'):
+        update_share_url(launch_info.share_url)
+        logging.info(f"Gradio share URL: {launch_info.share_url}")
+    else:
+        logging.warning("Launch info does not contain a share URL.")
+    
+    # Keep the script running
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logging.info("Application stopped by user")
