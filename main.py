@@ -851,9 +851,25 @@ def queue_processor():
 
 if __name__ == "__main__":
     app = create_gradio_interface()
+    
+    # Get the port from environment or use default
+    port = int(os.environ.get("PORT", 7860))
+    
+    # Log the access URLs clearly
+    server_name = os.environ.get("SERVER_NAME", "0.0.0.0")
+    local_url = f"http://localhost:{port}/" if server_name == "0.0.0.0" else f"http://{server_name}:{port}/"
+    
+    logging.info("=" * 70)
+    logging.info(f"Launching Gradio app...")
+    logging.info(f"Local URL: {local_url}")
+    logging.info(f"To access from outside the container, use the mapped port")
+    logging.info("=" * 70)
+    
+    # Launch the app
     app.launch(
-        server_name="0.0.0.0",  # Listen on all network interfaces
-        server_port=int(os.environ.get("PORT", 7860)),  # Use PORT env var or default to 7860
+        server_name=server_name,  # Listen on all network interfaces
+        server_port=port,  # Use PORT env var or default to 7860
         show_api=False,  # Disable API documentation page
-        share=os.environ.get("SHARE", "True").lower() == "true"  # Enable sharing only if explicitly requested
+        share=os.environ.get("SHARE", "True").lower() == "true",  # Enable sharing only if explicitly requested
+        inbrowser=False  # Don't attempt to open in browser
     )
