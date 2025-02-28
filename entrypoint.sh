@@ -11,9 +11,9 @@ echo "Steam download path: ${STEAM_DOWNLOAD_PATH}"
 mkdir -p /app/steamcmd
 chmod 755 /app/steamcmd
 
-# Ensure downloads directory exists and has proper permissions
+# Ensure downloads directory exists
 mkdir -p ${STEAM_DOWNLOAD_PATH}
-chmod 755 ${STEAM_DOWNLOAD_PATH}
+chmod 755 ${STEAM_DOWNLOAD_PATH}  # Ensure the download path is writable
 
 # Ensure logs directory exists
 mkdir -p /app/logs
