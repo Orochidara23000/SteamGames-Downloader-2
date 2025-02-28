@@ -121,7 +121,9 @@ def install_steamcmd():
     logging.info("Running SteamCMD for the first time to complete installation")
     os.system(steamcmd_path + " +quit")
     logging.info("SteamCMD initial run completed successfully")
-    return "SteamCMD installed successfully."
+    
+    # Return two outputs: a success message and the path to steamcmd.sh
+    return "SteamCMD installed successfully.", steamcmd_path
 
 def parse_game_input(input_str):
     logging.info(f"Parsing game input: {input_str}")
