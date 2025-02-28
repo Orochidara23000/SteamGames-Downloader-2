@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# Miscellaneous
+.DS_Store
+steamcmd/  # Ignore the steamcmd directory as it's installed by the script
