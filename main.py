@@ -92,22 +92,29 @@ def check_steamcmd():
 
 def install_steamcmd():
     logging.info("Installing SteamCMD for Linux")
-    steamcmd_path = "/app/steamcmd/steamcmd.sh"
+    steamcmd_dir = "/app/steamcmd"
+    steamcmd_path = os.path.join(steamcmd_dir, "steamcmd.sh")
     
     # Remove existing SteamCMD directory if it exists
-    if os.path.exists("/app/steamcmd"):
-        logging.info(f"Removing existing SteamCMD directory: /app/steamcmd")
-        shutil.rmtree("/app/steamcmd")
+    if os.path.exists(steamcmd_dir):
+        logging.info(f"Removing existing SteamCMD directory: {steamcmd_dir}")
+        shutil.rmtree(steamcmd_dir)
     
-    # Download and extract SteamCMD
+    # Create the SteamCMD directory
+    os.makedirs(steamcmd_dir, exist_ok=True)  # Ensure the directory exists
+    
+    # Download SteamCMD
     logging.info(f"Downloading SteamCMD from https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
     response = requests.get("https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
-    with open("/app/steamcmd/steamcmd_linux.tar.gz", "wb") as f:
+    
+    # Write the downloaded content to the file
+    steamcmd_tar_path = os.path.join(steamcmd_dir, "steamcmd_linux.tar.gz")
+    with open(steamcmd_tar_path, "wb") as f:
         f.write(response.content)
     
     logging.info("Extracting SteamCMD tar.gz file")
-    with tarfile.open("/app/steamcmd/steamcmd_linux.tar.gz", "r:gz") as tar:
-        tar.extractall(path="/app/steamcmd")
+    with tarfile.open(steamcmd_tar_path, "r:gz") as tar:
+        tar.extractall(path=steamcmd_dir)
     
     # Make the steamcmd.sh executable
     os.chmod(steamcmd_path, 0o755)
