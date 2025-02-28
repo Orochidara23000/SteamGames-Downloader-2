@@ -1,16 +1,6 @@
-
-**Instructions**:
-- Replace `yourusername` in the clone URL with your actual GitHub username.
-
----
-
-### 3. **LICENSE**
-The `LICENSE` file defines the terms under which others can use your software. Here, we use the MIT License, a popular choice for open-source projects due to its simplicity and permissiveness.
-
-```markdown
 MIT License
 
-Copyright (c) [year] [your name]
+Copyright (c) 2025 Your Name
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
