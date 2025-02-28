@@ -12,7 +12,6 @@ import json
 import threading
 from datetime import datetime
 import shutil
-import sys
 
 # Set up logging
 logging.basicConfig(
@@ -21,31 +20,20 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Also log to console
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-logging.getLogger('').addHandler(console)
-
 # Global variables for download management
 active_downloads = {}
 download_queue = []
 
-# Environment detection - check if running in Docker/Railway
-def is_container():
-    # Check for Docker
-    if os.path.exists('/.dockerenv'):
-        return True
-    # Check for Railway specific env vars
-    if os.environ.get('RAILWAY_ENVIRONMENT') is not None:
-        return True
-    return False
+# Environment variable handling for containerization
+STEAM_DOWNLOAD_PATH = os.environ.get('STEAM_DOWNLOAD_PATH')
 
-# Default download location - automatic based on platform
+# Modified get_default_download_location function
 def get_default_download_location():
-    # If in container environment, use a fixed path
-    if is_container():
-        return os.environ.get('STEAM_LIBRARY_PATH', '/app/steamlibrary')
-    
+    # First check for environment variable (for containerization)
+    if STEAM_DOWNLOAD_PATH:
+        return STEAM_DOWNLOAD_PATH
+        
+    # Fall back to platform-specific paths
     if platform.system() == "Windows":
         return os.path.join(os.path.expanduser("~"), "SteamLibrary")
     elif platform.system() == "Darwin":  # macOS
@@ -53,112 +41,29 @@ def get_default_download_location():
     else:  # Linux and others
         return os.path.join(os.path.expanduser("~"), "SteamLibrary")
 
-# Function to get the correct SteamCMD path
+# Modified get_steamcmd_path function with absolute path
 def get_steamcmd_path():
-    # If in container, check if steamcmd is in PATH
-    if is_container():
-        # Check common paths in containers
-        container_paths = [
-            "/usr/games/steamcmd",
-            "/usr/bin/steamcmd",
-            "/app/steamcmd/steamcmd.sh"
-        ]
-        
-        # Try to use steamcmd from PATH first
-        try:
-            result = subprocess.run(["which", "steamcmd"], capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                logging.info(f"Found steamcmd in PATH: {result.stdout.strip()}")
-                return result.stdout.strip()
-        except:
-            pass
-            
-        # Check common container paths
-        for path in container_paths:
-            if os.path.exists(path):
-                logging.info(f"Found steamcmd at container path: {path}")
-                return path
+    # Use absolute paths
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    steamcmd_dir = os.path.join(base_dir, "steamcmd")
     
-    # Regular paths for local installation
     if platform.system() == "Windows":
-        return os.path.abspath("./steamcmd/steamcmd.exe")
+        return os.path.join(steamcmd_dir, "steamcmd.exe")
     else:
-        return os.path.abspath("./steamcmd/steamcmd.sh")
+        return os.path.join(steamcmd_dir, "steamcmd.sh")
 
 # Function to check if SteamCMD is installed
 def check_steamcmd():
     steamcmd_path = get_steamcmd_path()
     is_installed = os.path.exists(steamcmd_path)
-    
-    if is_installed:
-        logging.info(f"SteamCMD found at: {steamcmd_path}")
-        # Verify it's executable
-        if platform.system() != "Windows" and not os.access(steamcmd_path, os.X_OK):
-            try:
-                logging.info(f"Setting executable permission on {steamcmd_path}")
-                os.chmod(steamcmd_path, 0o755)
-                return f"SteamCMD found at {steamcmd_path}, fixed permissions."
-            except Exception as e:
-                logging.error(f"Failed to set executable permission: {str(e)}")
-                return f"SteamCMD is installed at {steamcmd_path} but not executable. Error: {str(e)}"
-        return f"SteamCMD is installed at {steamcmd_path}."
-    
-    # If in container, try to find system-wide SteamCMD
-    if is_container():
-        try:
-            result = subprocess.run(["which", "steamcmd"], capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                path = result.stdout.strip()
-                logging.info(f"Found system SteamCMD at: {path}")
-                return f"SteamCMD is installed at {path}"
-        except:
-            pass
-    
-    result = "SteamCMD is not installed."
-    logging.info(result)
+    result = "SteamCMD is installed." if is_installed else "SteamCMD is not installed."
+    logging.info(f"SteamCMD check: {result}")
     return result
 
 # Function to install SteamCMD
 def install_steamcmd():
     os_type = platform.system()
     logging.info(f"Installing SteamCMD for {os_type}")
-    
-    # If in container, try to use package manager
-    if is_container():
-        try:
-            logging.info("Trying to install SteamCMD via package manager")
-            
-            # Try apt (Debian/Ubuntu)
-            try:
-                logging.info("Attempting to install via apt-get")
-                subprocess.run(["apt-get", "update"], check=True)
-                subprocess.run(["apt-get", "install", "-y", "steamcmd"], check=True)
-                
-                # Check if it was installed
-                result = subprocess.run(["which", "steamcmd"], capture_output=True, text=True)
-                if result.returncode == 0 and result.stdout.strip():
-                    path = result.stdout.strip()
-                    logging.info(f"Successfully installed SteamCMD via apt at: {path}")
-                    return f"SteamCMD installed successfully at {path}"
-            except Exception as e:
-                logging.warning(f"apt-get installation failed: {str(e)}")
-            
-            # Try yum (CentOS/RHEL)
-            try:
-                logging.info("Attempting to install via yum")
-                subprocess.run(["yum", "install", "-y", "steamcmd"], check=True)
-                
-                result = subprocess.run(["which", "steamcmd"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    path = result.stdout.strip()
-                    logging.info(f"Successfully installed SteamCMD via yum at: {path}")
-                    return f"SteamCMD installed successfully at {path}"
-            except Exception as e:
-                logging.warning(f"yum installation failed: {str(e)}")
-        
-        except Exception as e:
-            logging.warning(f"Package manager installation failed: {str(e)}")
-            logging.info("Falling back to manual installation")
     
     try:
         # Clean up any existing installation
@@ -221,17 +126,9 @@ def install_steamcmd():
         logging.info("Running SteamCMD for the first time to complete installation")
         steamcmd_path = get_steamcmd_path()
         if os.path.exists(steamcmd_path):
-            try:
-                # Ensure it's executable
-                if platform.system() != "Windows":
-                    os.chmod(steamcmd_path, 0o755)
-                
-                subprocess.run([steamcmd_path, "+quit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                logging.info("SteamCMD initial run completed")
-                return f"SteamCMD installed successfully at {steamcmd_path}."
-            except Exception as e:
-                logging.error(f"Error running SteamCMD: {str(e)}")
-                return f"Error running SteamCMD: {str(e)}"
+            subprocess.run([steamcmd_path, "+quit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logging.info("SteamCMD initial run completed")
+            return "SteamCMD installed successfully."
         else:
             logging.error(f"SteamCMD executable not found at {steamcmd_path}")
             return f"Error: SteamCMD executable not found at {steamcmd_path}"
@@ -291,46 +188,337 @@ def validate_appid(appid):
         logging.error(f"Validation error for App ID {appid}: {str(e)}")
         return False, f"Validation error: {str(e)}"
 
-# Function to create system-specific paths with multiple fallbacks
-def create_system_path(path):
-    # Ensure absolute path
-    abs_path = os.path.abspath(path)
-    
-    # Create directories
+# Function to parse SteamCMD output for progress and size
+def parse_progress(line):
     try:
-        os.makedirs(abs_path, exist_ok=True)
-        return abs_path
-    except PermissionError:
-        # If permission error, try user home directory
-        logging.warning(f"Permission denied for {abs_path}, trying user home")
-        try:
-            home_path = os.path.join(os.path.expanduser("~"), "SteamLibrary")
-            os.makedirs(home_path, exist_ok=True)
-            return home_path
-        except Exception as e:
-            # Last resort - use temp directory
-            logging.warning(f"Failed to use home directory: {str(e)}, using temp dir")
-            temp_path = os.path.join(os.path.abspath(os.sep), "tmp", "SteamLibrary")
-            os.makedirs(temp_path, exist_ok=True)
-            return temp_path
+        # Look for progress percentage
+        progress_patterns = [
+            r'(Progress|Update|Download): .*?(\d+\.\d+)%',
+            r'(\d+\.\d+)% complete',
+            r'Progress: +(\d+\.\d+) %'
+        ]
+        
+        for pattern in progress_patterns:
+            progress_match = re.search(pattern, line)
+            if progress_match:
+                return {"progress": float(progress_match.group(2) if len(progress_match.groups()) > 1 else progress_match.group(1))}
+        
+        # Look for total size in various formats
+        size_patterns = [
+            r'(size|total): (\d+\.?\d*) (\w+)',
+            r'downloading (\d+\.?\d*) (\w+)',
+            r'download of (\d+\.?\d*) (\w+)'
+        ]
+        
+        for pattern in size_patterns:
+            size_match = re.search(pattern, line, re.IGNORECASE)
+            if size_match:
+                size = float(size_match.group(2))
+                unit = size_match.group(3)
+                return {"total_size": size, "unit": unit}
+        
+        # Look for error messages
+        error_keywords = [
+            "Invalid Password", "Connection to Steam servers failed",
+            "ERROR", "FAILED", "Authentication failed", "timeout"
+        ]
+        
+        for keyword in error_keywords:
+            if keyword in line:
+                return {"error": line}
+                
+        return None
     except Exception as e:
-        logging.error(f"Error creating directory {abs_path}: {str(e)}")
-        # Try temp directory as fallback
-        temp_path = os.path.join(os.path.abspath(os.sep), "tmp", "SteamLibrary")
-        os.makedirs(temp_path, exist_ok=True)
-        return temp_path
+        logging.error(f"Error parsing progress: {str(e)}")
+        return None
 
-# Remaining functions...
-# [Rest of the code remains the same]
+# Function to manage the download queue
+def process_download_queue():
+    if download_queue and not active_downloads:
+        next_download = download_queue.pop(0)
+        thread = threading.Thread(target=next_download["function"], args=next_download["args"])
+        thread.daemon = True
+        thread.start()
+
+# Function to verify game installation
+def verify_installation(appid, install_path):
+    logging.info(f"Verifying installation for App ID: {appid}")
+    
+    cmd_args = [get_steamcmd_path()]
+    cmd_args.extend(["+login", "anonymous", "+app_update", appid, "validate", "+quit"])
+    
+    process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    
+    for line in process.stdout:
+        logging.debug(f"Verification output: {line.strip()}")
+        if f"Success! App '{appid}' fully installed" in line:
+            logging.info(f"Verification successful for App ID: {appid}")
+            return True
+    
+    logging.warning(f"Verification failed for App ID: {appid}")
+    return False
+
+# Function to download the game with progress updates
+def download_game(username, password, guard_code, anonymous, game_input, validate=True):
+    # Get the automatic download location
+    download_path = get_default_download_location()
+    
+    appid = parse_game_input(game_input)
+    if not appid:
+        yield "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
+        return
+    
+    # Validate the App ID
+    is_valid, game_info = validate_appid(appid)
+    if not is_valid:
+        yield f"Error: {game_info}"
+        return
+    
+    # Create a unique ID for this download
+    download_id = f"{appid}_{int(time.time())}"
+    active_downloads[download_id] = {"status": "starting", "progress": 0}
+    
+    # Ensure download directory exists
+    os.makedirs(download_path, exist_ok=True)
+    game_path = os.path.join(download_path, game_info['name'] if isinstance(game_info, dict) else f"app_{appid}")
+    os.makedirs(game_path, exist_ok=True)
+    
+    yield f"Starting download for: {game_info['name'] if isinstance(game_info, dict) else f'App ID: {appid}'}\n"
+    yield f"Download location: {game_path}\n"
+    
+    # Construct SteamCMD arguments
+    cmd_args = [get_steamcmd_path()]
+    
+    if anonymous:
+        cmd_args.extend(["+login", "anonymous"])
+    else:
+        cmd_args.extend(["+login", username, password])
+        if guard_code:
+            cmd_args.append(guard_code)
+    
+    cmd_args.extend(["+force_install_dir", game_path, "+app_update", appid])
+    
+    if validate:
+        cmd_args.append("validate")
+    
+    cmd_args.append("+quit")
+    
+    # Variables for progress tracking
+    total_size = None
+    unit = None
+    start_time = time.time()
+    active_downloads[download_id]["start_time"] = start_time
+    
+    logging.info(f"Starting download for App ID: {appid}, Command: {' '.join(cmd_args)}")
+    
+    # Run SteamCMD
+    try:
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        active_downloads[download_id]["status"] = "downloading"
+        
+        for line in process.stdout:
+            logging.debug(f"SteamCMD output: {line.strip()}")
+            
+            # Check for specific error conditions
+            if "Invalid Password" in line:
+                active_downloads[download_id]["status"] = "failed"
+                yield "Error: Invalid credentials. Please check your username and password."
+                break
+                
+            if "Steam Guard code is incorrect" in line:
+                active_downloads[download_id]["status"] = "failed"
+                yield "Error: Incorrect Steam Guard code."
+                break
+                
+            if "Connection to Steam servers failed" in line:
+                active_downloads[download_id]["status"] = "failed"
+                yield "Error: Connection to Steam servers failed. Check your internet connection."
+                break
+            
+            info = parse_progress(line)
+            if info:
+                if "error" in info:
+                    active_downloads[download_id]["status"] = "failed"
+                    yield f"Error: {info['error']}"
+                    break
+                    
+                if "total_size" in info:
+                    total_size = info["total_size"]
+                    unit = info["unit"]
+                    active_downloads[download_id]["total_size"] = total_size
+                    active_downloads[download_id]["unit"] = unit
+                    yield f"Total download size: {total_size} {unit}\n"
+                    
+                elif "progress" in info and total_size:
+                    progress = info["progress"]
+                    active_downloads[download_id]["progress"] = progress
+                    
+                    downloaded = (progress / 100) * total_size
+                    elapsed = time.time() - start_time
+                    speed = downloaded / elapsed if elapsed > 0 else 0
+                    
+                    # Calculate remaining time
+                    remaining_size = total_size - downloaded
+                    remaining_time = remaining_size / speed if speed > 0 else 0
+                    
+                    # Format remaining time as hours:minutes:seconds
+                    hours, remainder = divmod(remaining_time, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    time_str = f"{int(hours)}h {int(minutes)}m {int(seconds)}s" if hours > 0 else f"{int(minutes)}m {int(seconds)}s"
+                    
+                    status = (f"Downloading: {progress:.1f}% - {downloaded:.2f}/{total_size} {unit}\n"
+                             f"Speed: {speed:.2f} {unit}/s - Remaining: {time_str}")
+                    
+                    yield status
+                elif "progress" in info:
+                    progress = info["progress"]
+                    active_downloads[download_id]["progress"] = progress
+                    yield f"Downloading: {progress:.1f}%"
+            else:
+                # Check for completion message
+                if "Success! App fully installed." in line or f"Success! App '{appid}' fully installed" in line:
+                    active_downloads[download_id]["status"] = "completed"
+                    yield "Download completed successfully!"
+                else:
+                    yield line.strip()
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            active_downloads[download_id]["status"] = "completed"
+            active_downloads[download_id]["progress"] = 100
+            active_downloads[download_id]["end_time"] = time.time()
+            
+            yield "Download completed successfully!"
+            
+            # Verify installation if requested
+            if validate:
+                yield "Verifying installation..."
+                if verify_installation(appid, game_path):
+                    yield "Verification successful. Game is ready to play!"
+                else:
+                    yield "Verification failed. You may need to repair the installation."
+        else:
+            active_downloads[download_id]["status"] = "failed"
+            yield f"Download failed with exit code: {process.returncode}"
+            
+    except Exception as e:
+        active_downloads[download_id]["status"] = "failed"
+        logging.error(f"Error during download: {str(e)}")
+        yield f"Error during download: {str(e)}"
+    
+    # Remove from active downloads
+    del active_downloads[download_id]
+    
+    # Process next download in queue if any
+    process_download_queue()
+
+# Function to add a download to the queue
+def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
+    if not anonymous and (not username or not password):
+        return "Error: Username and password are required for non-anonymous downloads."
+    
+    appid = parse_game_input(game_input)
+    if not appid:
+        return "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
+    
+    # Add the download to the queue
+    download_queue.append({
+        "function": download_game,
+        "args": (username, password, guard_code, anonymous, game_input, validate)
+    })
+    
+    # Start processing the queue if not already processing
+    if not active_downloads:
+        process_download_queue()
+    
+    return f"Added game with App ID {appid} to the download queue. Position: {len(download_queue)}"
+
+# Function to get a list of installed games
+def list_installed_games():
+    library_path = get_default_download_location()
+    if not os.path.exists(library_path):
+        return f"Library folder not found at {library_path}."
+    
+    games = []
+    for item in os.listdir(library_path):
+        path = os.path.join(library_path, item)
+        if os.path.isdir(path):
+            # Check if it looks like a Steam game directory
+            if os.path.exists(os.path.join(path, "steam_appid.txt")):
+                try:
+                    with open(os.path.join(path, "steam_appid.txt"), "r") as f:
+                        appid = f.read().strip()
+                    
+                    games.append({
+                        "name": item,
+                        "appid": appid,
+                        "path": path,
+                        "size": get_folder_size(path)
+                    })
+                except:
+                    games.append({
+                        "name": item,
+                        "path": path,
+                        "size": get_folder_size(path)
+                    })
+            else:
+                games.append({
+                    "name": item,
+                    "path": path,
+                    "size": get_folder_size(path)
+                })
+    
+    if not games:
+        return f"No games found in the library at {library_path}."
+    
+    result = f"Installed Games (in {library_path}):\n"
+    for game in games:
+        result += f"- {game['name']}"
+        if 'appid' in game:
+            result += f" (App ID: {game['appid']})"
+        result += f" - {format_size(game['size'])}\n"
+    
+    return result
+
+# Helper function to get folder size
+def get_folder_size(folder_path):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for filename in filenames:
+            file_path = os.path.join(dirpath, filename)
+            total_size += os.path.getsize(file_path)
+    return total_size
+
+# Helper function to format size
+def format_size(size_bytes):
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+# Add this function to check and install container dependencies
+def check_container_dependencies():
+    """Check if required system libraries are installed for container environments."""
+    if not os.path.exists('/lib/x86_64-linux-gnu/libstdc++.so.6'):
+        logging.warning("Container missing libstdc++6, attempting to install")
+        try:
+            subprocess.run(["apt-get", "update"], check=True)
+            subprocess.run(["apt-get", "install", "-y", "lib32gcc-s1"], check=True)
+            return "Container dependencies installed."
+        except subprocess.SubprocessError as e:
+            logging.error(f"Failed to install dependencies: {str(e)}")
+            return "Failed to install dependencies. You may need to install lib32gcc-s1 manually."
+    return "Container dependencies OK."
 
 # Gradio interface
 with gr.Blocks(title="Steam Games Downloader") as app:
     gr.Markdown("# Steam Games Downloader")
     gr.Markdown("Download Steam games using SteamCMD with a user-friendly interface.")
-    
-    # Environment info
-    env_info = "Running in container" if is_container() else "Running locally"
-    gr.Markdown(f"### Environment: {env_info}")
     
     # System check section
     with gr.Tab("Setup"):
@@ -338,13 +526,10 @@ with gr.Blocks(title="Steam Games Downloader") as app:
         with gr.Row():
             check_button = gr.Button("Check SteamCMD Installation")
             install_button = gr.Button("Install SteamCMD")
+            container_check_button = gr.Button("Check Container Dependencies")
         
         setup_output = gr.Textbox(label="Status", lines=5)
-        
-        # Show the download location with environment variables support
-        download_location = get_default_download_location()
-        gr.Markdown(f"### Download Location\nGames will be automatically downloaded to: **{download_location}**")
-        gr.Markdown("To change the download location when using Docker/Railway, set the `STEAM_LIBRARY_PATH` environment variable.")
+        gr.Markdown(f"### Download Location\nGames will be automatically downloaded to: **{get_default_download_location()}**")
     
     # Download section
     with gr.Tab("Download Games"):
@@ -379,26 +564,6 @@ with gr.Blocks(title="Steam Games Downloader") as app:
         
         library_output = gr.Textbox(label="Installed Games", lines=10)
     
-    # Logs section - new
-    with gr.Tab("Logs"):
-        gr.Markdown("### Application Logs")
-        log_output = gr.Textbox(label="Recent Logs", lines=15)
-        refresh_log_button = gr.Button("Refresh Logs")
-        
-        # Function to get recent logs
-        def get_recent_logs():
-            try:
-                if os.path.exists("steam_downloader.log"):
-                    with open("steam_downloader.log", "r") as f:
-                        # Get last 20 lines
-                        lines = f.readlines()[-20:]
-                        return "".join(lines)
-                return "No log file found."
-            except Exception as e:
-                return f"Error reading log file: {str(e)}"
-        
-        refresh_log_button.click(get_recent_logs, outputs=log_output)
-    
     # About section
     with gr.Tab("About"):
         gr.Markdown("""
@@ -414,14 +579,11 @@ with gr.Blocks(title="Steam Games Downloader") as app:
         - Download queue for multiple games
         - Game installation verification
         
-        ### Environment Support
-        - Desktop: Windows, macOS, Linux
-        - Container: Docker, Railway, and other cloud platforms
-        
-        ### System Requirements
-        - Python 3.7+
-        - Internet connection
-        - Space for downloaded games
+        ### Download Location
+        Games are automatically saved to a platform-specific location:
+        - Windows: ~/SteamLibrary
+        - macOS: ~/Library/Application Support/SteamLibrary
+        - Linux: ~/SteamLibrary
         
         ### Credits
         - SteamCMD by Valve Corporation
@@ -434,6 +596,7 @@ with gr.Blocks(title="Steam Games Downloader") as app:
     # Event handlers
     check_button.click(check_steamcmd, outputs=setup_output)
     install_button.click(install_steamcmd, outputs=setup_output)
+    container_check_button.click(check_container_dependencies, outputs=setup_output)
     
     # Login logic to enable/disable fields based on anonymous checkbox
     def update_login_fields(anonymous):
@@ -448,20 +611,6 @@ with gr.Blocks(title="Steam Games Downloader") as app:
     # Library buttons
     refresh_button.click(list_installed_games, outputs=library_output)
 
-# Launch the app with environment-based settings
+# Launch the app
 if __name__ == "__main__":
-    # Get port from environment or use default
-    port = int(os.environ.get("PORT", 7860))
-    
-    # Determine whether to use 0.0.0.0 (for containers) or 127.0.0.1 (local)
-    host = "0.0.0.0" if is_container() else "127.0.0.1"
-    
-    # Log startup info
-    logging.info(f"Starting Steam Downloader on {host}:{port}")
-    logging.info(f"Environment: {'Container' if is_container() else 'Local'}")
-    logging.info(f"Default download location: {get_default_download_location()}")
-    logging.info(f"Python version: {sys.version}")
-    logging.info(f"Platform: {platform.platform()}")
-    
-    # Launch app with appropriate settings
-    app.launch(server_name=host, server_port=port)
+    app.launch(share=True)

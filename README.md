@@ -12,10 +12,11 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 - Game installation verification
 - Library management to view installed games
 - Cross-platform support (Windows, Linux, macOS)
+- Docker container support for easy deployment
 - Detailed logging for troubleshooting
 - Automatic download location management
 
-## Installation
+## Standard Installation
 
 1. **Clone the repository**:
    ```bash
@@ -35,6 +36,30 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 
 4. Open your browser and navigate to `http://127.0.0.1:7860` to access the interface.
 
+## Docker Installation
+
+For easier deployment and to avoid dependency issues, you can use Docker:
+
+1. **Build and run with Docker Compose**:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Open your browser and navigate to `http://127.0.0.1:7860` to access the interface.
+
+3. **Stop the container**:
+   ```bash
+   docker-compose down
+   ```
+
+### Custom Docker Configuration
+
+You can customize the Docker setup by modifying the `docker-compose.yml` file:
+
+- Change the port mapping (default is 7860)
+- Change the download location by modifying the `STEAM_DOWNLOAD_PATH` environment variable
+- Add custom volumes for persistent storage
+
 ## Usage
 
 ### Setting up SteamCMD
@@ -42,6 +67,7 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 1. Go to the "Setup" tab
 2. Click "Check SteamCMD Installation" to see if SteamCMD is already installed
 3. If not installed, click "Install SteamCMD" to automatically download and set it up
+4. If running in a container, you can also check container dependencies
 
 ### Downloading Games
 
@@ -53,10 +79,12 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 
 ### Download Locations
 
-Games are automatically saved to a platform-specific location:
-- Windows: ~/SteamLibrary
-- macOS: ~/Library/Application Support/SteamLibrary
-- Linux: ~/SteamLibrary
+Games are automatically saved to:
+- **Standard installation**: Platform-specific location
+  - Windows: ~/SteamLibrary
+  - macOS: ~/Library/Application Support/SteamLibrary
+  - Linux: ~/SteamLibrary
+- **Docker installation**: /data/downloads (mapped to the steam-downloads volume)
 
 ### Managing Your Library
 
@@ -75,6 +103,12 @@ Games are automatically saved to a platform-specific location:
 - Ensure you have sufficient disk space for game downloads
 - For connection issues, verify your internet connection and firewall settings
 - If SteamCMD fails to install, try installing it manually following [official instructions](https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD)
+
+### Container-specific Issues
+
+- **Permission errors**: Ensure the container has write permissions to the volumes
+- **Missing dependencies**: Use the "Check Container Dependencies" button in the Setup tab
+- **Path resolution problems**: Check the paths in the docker-compose.yml file
 
 ## License
 
