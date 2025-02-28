@@ -1054,46 +1054,54 @@ def create_downloads_tab():
         
         # Function to update download status in the UI
         def update_downloads_status():
-            status = get_download_status()
-            
-            # Format active downloads for table display
-            active_data = []
-            for download in status["active"]:
-                active_data.append([
-                    download["id"],
-                    download["name"],
-                    f"{download['progress']:.1f}%",
-                    download["status"],
-                    download["speed"],
-                    download["eta"],
-                    download["runtime"]
-                ])
-            
-            # Format queue for table display
-            queue_data = []
-            for item in status["queue"]:
-                queue_data.append([
-                    item["position"],
-                    item["appid"],
-                    item["name"],
-                    item["size"],
-                    "Yes" if item["validate"] else "No"
-                ])
-            
-            # Format system stats
-            system_data = [
-                ["CPU Usage", f"{status['system']['cpu_usage']}%"],
-                ["Memory Usage", f"{status['system']['memory_usage']}%"],
-                ["Disk Usage", f"{status['system']['disk_usage']}%"],
-                ["Active Downloads", str(len(status["active"]))],
-                ["Queued Downloads", str(len(status["queue"]))],
-                ["System Uptime", status['system']['uptime']]
-            ]
-            
-            # Update the tables with new data
-            active_downloads_table.value = active_data
-            queue_table.value = queue_data
-            system_stats.value = system_data
+            try:
+                status = get_download_status()
+                
+                # Format active downloads for table display
+                active_data = []
+                for download in status["active"]:
+                    active_data.append([
+                        download["id"],
+                        download["name"],
+                        f"{download['progress']:.1f}%",
+                        download["status"],
+                        download["speed"],
+                        download["eta"],
+                        download["runtime"]
+                    ])
+                
+                # Format queue for table display
+                queue_data = []
+                for item in status["queue"]:
+                    queue_data.append([
+                        item["position"],
+                        item["appid"],
+                        item["name"],
+                        item["size"],
+                        "Yes" if item["validate"] else "No"
+                    ])
+                
+                # Format system stats
+                system_data = [
+                    ["CPU Usage", f"{status['system']['cpu_usage']}%"],
+                    ["Memory Usage", f"{status['system']['memory_usage']}%"],
+                    ["Disk Usage", f"{status['system']['disk_usage']}%"],
+                    ["Active Downloads", str(len(status["active"]))],
+                    ["Queued Downloads", str(len(status["queue"]))],
+                    ["System Uptime", status['system']['uptime']]
+                ]
+                
+                # Update the tables with new data
+                active_downloads_table.value = active_data
+                queue_table.value = queue_data
+                system_stats.value = system_data
+                
+            except Exception as e:
+                logging.error(f"Error updating download status: {str(e)}")
+                # Optionally, you can reset the tables to empty or show an error message
+                active_downloads_table.value = []
+                queue_table.value = []
+                system_stats.value = []
         
         # Connect events for refreshing data
         refresh_btn.click(
