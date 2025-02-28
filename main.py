@@ -857,7 +857,7 @@ if __name__ == "__main__":
     
     # Log the access URLs clearly
     server_name = os.environ.get("SERVER_NAME", "0.0.0.0")
-    local_url = f"http://localhost:{port}/" if server_name == "0.0.0.0" else f"http://{server_name}:{port}/"
+    local_url = f"http://{server_name}:{port}/"
     
     logging.info("=" * 70)
     logging.info(f"Launching Gradio app...")
@@ -870,6 +870,6 @@ if __name__ == "__main__":
         server_name=server_name,  # Listen on all network interfaces
         server_port=port,  # Use PORT env var or default to 7860
         show_api=False,  # Disable API documentation page
-        share=os.environ.get("SHARE", "True").lower() == "true",  # Enable sharing only if explicitly requested
+        share=os.environ.get("SHARE", "False").lower() == "true",  # Enable sharing only if explicitly requested
         inbrowser=False  # Don't attempt to open in browser
     )
