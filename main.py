@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 import shutil
 import psutil
 import uvicorn
+from app import fastapi_app, create_interface, update_share_url
+
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
