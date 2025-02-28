@@ -977,6 +977,171 @@ def reorder_queue(from_position, to_position):
             logging.warning(f"Invalid queue positions: from={from_position}, to={to_position}")
             return False, "Invalid queue positions"
 
+def create_downloads_tab():
+    with gr.Tab("Downloads"):
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### Active Downloads")
+                active_downloads_table = gr.Dataframe(
+                    headers=["ID", "Name", "Progress", "Status", "Speed", "ETA", "Time Running"],
+                    interactive=False
+                )
+                
+                with gr.Row():
+                    cancel_download_input = gr.Textbox(
+                        label="Download ID to Cancel",
+                        placeholder="Enter download ID to cancel"
+                    )
+                    cancel_download_btn = gr.Button("Cancel Download", variant="secondary")
+                
+                cancel_output = gr.Textbox(label="Cancel Result", interactive=False)
+        
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### Download Queue")
+                queue_table = gr.Dataframe(
+                    headers=["Position", "App ID", "Name", "Size", "Validate?"],
+                    interactive=False
+                )
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        remove_position = gr.Number(
+                            label="Queue Position to Remove",
+                            precision=0,
+                            value=1
+                        )
+                    with gr.Column(scale=1):
+                        remove_queue_btn = gr.Button("Remove from Queue")
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        from_position = gr.Number(
+                            label="Move From Position",
+                            precision=0,
+                            value=1
+                        )
+                    with gr.Column(scale=1):
+                        to_position = gr.Number(
+                            label="To Position",
+                            precision=0,
+                            value=2
+                        )
+                    with gr.Column(scale=1):
+                        move_queue_btn = gr.Button("Move in Queue")
+                
+                queue_action_result = gr.Textbox(label="Queue Action Result", interactive=False)
+        
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### System Status")
+                system_stats = gr.Dataframe(
+                    headers=["Metric", "Value"],
+                    value=[
+                        ["CPU Usage", f"{psutil.cpu_percent()}%"],
+                        ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
+                        ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
+                        ["Active Downloads", str(len(active_downloads))],
+                        ["Queued Downloads", str(len(download_queue))]
+                    ],
+                    interactive=False
+                )
+        
+        # Refresh button for downloads status
+        with gr.Row():
+            refresh_btn = gr.Button("Refresh Status")
+            auto_refresh = gr.Checkbox(label="Auto-refresh (10s)", value=False)
+        
+        # Function to update download status in the UI
+        def update_downloads_status():
+            status = get_download_status()
+            
+            # Format active downloads for table display
+            active_data = []
+            for download in status["active"]:
+                active_data.append([
+                    download["id"],
+                    download["name"],
+                    f"{download['progress']:.1f}%",
+                    download["status"],
+                    download["speed"],
+                    download["eta"],
+                    download["runtime"]
+                ])
+            
+            # Format queue for table display
+            queue_data = []
+            for item in status["queue"]:
+                queue_data.append([
+                    item["position"],
+                    item["appid"],
+                    item["name"],
+                    item["size"],
+                    "Yes" if item["validate"] else "No"
+                ])
+            
+            # Format system stats
+            system_data = [
+                ["CPU Usage", f"{status['system']['cpu_usage']}%"],
+                ["Memory Usage", f"{status['system']['memory_usage']}%"],
+                ["Disk Usage", f"{status['system']['disk_usage']}%"],
+                ["Active Downloads", str(len(status["active"]))],
+                ["Queued Downloads", str(len(status["queue"]))],
+                ["System Uptime", status['system']['uptime']]
+            ]
+            
+            # Update the tables with new data
+            active_downloads_table.update(active_data)
+            queue_table.update(queue_data)
+            system_stats.update(system_data)
+        
+        # Connect events for refreshing data
+        refresh_btn.click(
+            fn=update_downloads_status,
+            outputs=[active_downloads_table, queue_table, system_stats]
+        )
+        
+        # Connect cancel download button
+        cancel_download_btn.click(
+            fn=cancel_download,
+            inputs=[cancel_download_input],
+            outputs=[cancel_output]
+        )
+        
+        # Connect remove from queue button
+        remove_queue_btn.click(
+            fn=remove_from_queue,
+            inputs=[remove_position],
+            outputs=[queue_action_result]
+        )
+        
+        # Connect move in queue button
+        move_queue_btn.click(
+            fn=lambda from_pos, to_pos: reorder_queue(int(from_pos), int(to_pos))[1],
+            inputs=[from_position, to_position],
+            outputs=[queue_action_result]
+        )
+        
+        # Handle auto-refresh
+        def setup_auto_refresh(auto_refresh_enabled):
+            if auto_refresh_enabled:
+                while True:
+                    update_downloads_status()
+                    time.sleep(10)  # Refresh every 10 seconds
+            else:
+                return  # Stop refreshing
+        
+        auto_refresh.change(
+            fn=setup_auto_refresh,
+            inputs=[auto_refresh],
+            outputs=[]
+        )
+        
+        # Initial update of tables
+        update_downloads_status()
+        
+    return refresh_btn, auto_refresh
+
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
     if not check_steamcmd():
