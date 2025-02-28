@@ -1,37 +1,32 @@
-# Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-# Set work directory
-WORKDIR /app
-
-# Install system dependencies required for SteamCMD
-RUN apt-get update && apt-get install -y \
+# Install required system dependencies
+RUN apt-get update && \
+    apt-get install -y \
     lib32gcc-s1 \
     curl \
-    tar \
-    unzip \
-    wget \
-    ca-certificates \
+    libcurl4 \
     && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application files
 COPY . .
 
-# Create directories for SteamCMD and downloaded games
-RUN mkdir -p /app/steamcmd /app/downloads
+# Make entrypoint script executable
+RUN chmod +x entrypoint.sh
 
-# Set permission for the entrypoint script
-RUN chmod +x /app/entrypoint.sh
+# Create directories for volumes
+RUN mkdir -p /data/downloads /app/steamcmd /app/logs
 
-# Define environment variable for download path
-ENV STEAM_DOWNLOAD_PATH=/app/downloads
+# Set environment variables
+ENV STEAM_DOWNLOAD_PATH=/data/downloads
+ENV LOG_LEVEL=INFO
 
-# Expose the port Gradio will run on
-EXPOSE 7860
-
-# Run the application with the entrypoint script
+# Run the entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

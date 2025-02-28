@@ -9,10 +9,18 @@ services:
       - "7860:7860"
     environment:
       - STEAM_DOWNLOAD_PATH=/data/downloads
+      - LOG_LEVEL=INFO
     volumes:
       - steam-downloads:/data/downloads
       - steam-cmd:/app/steamcmd
+      - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   steam-downloads:
