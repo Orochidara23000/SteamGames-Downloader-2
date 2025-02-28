@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 import shutil
 import psutil
 import uvicorn
-from app import fastapi_app, create_interface, update_share_url
 
 
 # Set up logging to both file and stdout
@@ -853,13 +852,18 @@ def queue_processor():
         time.sleep(5)  # Check queue every 5 seconds
 
 if __name__ == "__main__":
+    # Ensure SteamCMD is installed
     if not check_steamcmd():
         install_steamcmd()
     
+    # Create the Gradio interface directly
     app_interface = create_gradio_interface()
     
     # Start the FastAPI server for file serving in a separate thread
-    threading.Thread(target=lambda: uvicorn.run(fastapi_app, host="0.0.0.0", port=8081), daemon=True).start()
+    threading.Thread(
+        target=lambda: uvicorn.run(fastapi_app, host="0.0.0.0", port=8081),
+        daemon=True
+    ).start()
     
     port = int(os.getenv("PORT", 7861))
     logging.info(f"Starting application on port {port}")
