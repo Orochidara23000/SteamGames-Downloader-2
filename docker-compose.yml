@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  steam-downloader:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      - PORT=7860
+      - STEAM_LIBRARY_PATH=/data/steamlibrary
+    volumes:
+      - steam-data:/data/steamlibrary
+      - ./logs:/app/logs
+
+volumes:
+  steam-data:
+    driver: local
