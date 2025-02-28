@@ -41,7 +41,7 @@ download_queue = []
 queue_lock = threading.Lock()
 
 # Environment variable handling for containerization
-STEAM_DOWNLOAD_PATH = os.environ.get('STEAM_DOWNLOAD_PATH')
+STEAM_DOWNLOAD_PATH = os.environ.get('STEAM_DOWNLOAD_PATH', '/data/downloads')
 
 # Global variable to store the share URL
 SHARE_URL = ""
@@ -59,32 +59,25 @@ def update_share_url(share_url):
     logging.info(f"Gradio share URL updated: {share_url}")
 
 def get_default_download_location():
-    # First check for environment variable (for containerization)
     if STEAM_DOWNLOAD_PATH:
         logging.info(f"Using environment variable for download path: {STEAM_DOWNLOAD_PATH}")
         return STEAM_DOWNLOAD_PATH
-        
-    # Fall back to platform-specific paths
     if platform.system() == "Windows":
         path = os.path.join(os.path.expanduser("~"), "SteamLibrary")
-    elif platform.system() == "Darwin":  # macOS
+    elif platform.system() == "Darwin":
         path = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "SteamLibrary")
-    else:  # Linux and others
+    else:
         path = os.path.join(os.path.expanduser("~"), "SteamLibrary")
-    
     logging.info(f"Using platform-specific download path: {path}")
     return path
 
 def get_steamcmd_path():
-    # Use absolute paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     steamcmd_dir = os.path.join(base_dir, "steamcmd")
-    
     if platform.system() == "Windows":
         path = os.path.join(steamcmd_dir, "steamcmd.exe")
     else:
         path = os.path.join(steamcmd_dir, "steamcmd.sh")
-    
     logging.info(f"SteamCMD path: {path}")
     return path
 
@@ -97,64 +90,61 @@ def check_steamcmd():
 
 def install_steamcmd():
     logging.info("Installing SteamCMD for Linux")
-    steamcmd_path = "/app/steamcmd/steamcmd.sh"
+    steamcmd_install_dir = "/app/steamcmd"
+    steamcmd_path = os.path.join(steamcmd_install_dir, "steamcmd.sh")
     
     # Remove existing SteamCMD directory if it exists
-    if os.path.exists("/app/steamcmd"):
-        logging.info(f"Removing existing SteamCMD directory: /app/steamcmd")
-        shutil.rmtree("/app/steamcmd")
+    if os.path.exists(steamcmd_install_dir):
+        logging.info("Removing existing SteamCMD directory: /app/steamcmd")
+        shutil.rmtree(steamcmd_install_dir)
+    
+    # Re-create the /app/steamcmd directory before downloading
+    os.makedirs(steamcmd_install_dir, exist_ok=True)
     
     # Download and extract SteamCMD
-    logging.info(f"Downloading SteamCMD from https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
+    logging.info("Downloading SteamCMD from https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
     response = requests.get("https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
-    with open("/app/steamcmd/steamcmd_linux.tar.gz", "wb") as f:
+    tarball_path = os.path.join(steamcmd_install_dir, "steamcmd_linux.tar.gz")
+    
+    with open(tarball_path, "wb") as f:
         f.write(response.content)
     
     logging.info("Extracting SteamCMD tar.gz file")
-    with tarfile.open("/app/steamcmd/steamcmd_linux.tar.gz", "r:gz") as tar:
-        tar.extractall(path="/app/steamcmd")
+    with tarfile.open(tarball_path, "r:gz") as tar:
+        tar.extractall(path=steamcmd_install_dir)
     
     # Make the steamcmd.sh executable
     os.chmod(steamcmd_path, 0o755)
     logging.info("Made steamcmd.sh executable")
     
-    # Run SteamCMD for the first time
+    # Run SteamCMD for the first time to complete installation
     logging.info("Running SteamCMD for the first time to complete installation")
     os.system(steamcmd_path + " +quit")
-    
     logging.info("SteamCMD initial run completed successfully")
-    
-    # Return two outputs, for example, a success message and the path
-    return "SteamCMD installed successfully.", steamcmd_path  # Adjust as needed
+    return "SteamCMD installed successfully."
 
 def parse_game_input(input_str):
     logging.info(f"Parsing game input: {input_str}")
-    
-    # Check if input is empty
     if not input_str or input_str.strip() == "":
         logging.warning("Empty game input provided")
         return None
-    
-    # Check if it's a direct App ID
     if input_str.isdigit():
         logging.info(f"Input is a valid App ID: {input_str}")
         return input_str
     
-    # Check if it's a Steam store URL
+    # Support for Steam store URLs
     url_patterns = [
-        r'store\.steampowered\.com/app/(\d+)',  # Store URL
-        r'steamcommunity\.com/app/(\d+)',       # Community URL
-        r'/app/(\d+)'                          # General app pattern
+        r'store\.steampowered\.com/app/(\d+)',
+        r'steamcommunity\.com/app/(\d+)',
+        r'/app/(\d+)'
     ]
-    
     for pattern in url_patterns:
         match = re.search(pattern, input_str)
         if match:
             appid = match.group(1)
-            logging.info(f"Extracted App ID {appid} from URL: {input_str}")
+            logging.info(f"Extracted App ID: {appid}")
             return appid
-    
-    logging.warning(f"Failed to parse game input: {input_str}")
+    logging.error("Failed to extract App ID from input")
     return None
 
 def validate_appid(appid):
