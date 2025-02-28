@@ -1,0 +1,15 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python main.py"
+healthcheckPath = "/"
+healthcheckTimeout = 10
+restartPolicyType = "on-failure"
+
+[environments]
+PORT = "7860"
+HEALTH_PORT = "7861"
+STEAM_DOWNLOAD_PATH = "/data/downloads"
+LOG_LEVEL = "INFO"
+SERVER_NAME = "0.0.0.0"

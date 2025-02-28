@@ -6,22 +6,25 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "7860:7860"
+      - "7860:7860"  # Main application port
+      - "7861:7861"  # Health check port
     environment:
       - STEAM_DOWNLOAD_PATH=/data/downloads
       - LOG_LEVEL=INFO
       - SERVER_NAME=0.0.0.0
+      - PORT=7860
+      - HEALTH_PORT=7861
     volumes:
-      - steam-downloads:/data/downloads
-      - steam-cmd:/app/steamcmd
-      - ./logs:/app/logs
+      - steam-downloads:/data/downloads  # Persistent storage for downloads
+      - steam-cmd:/app/steamcmd          # Persistent storage for SteamCMD
+      - ./logs:/app/logs                  # Mount host logs directory
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7861/"]
+      test: ["CMD", "curl", "-f", "http://localhost:7861/"]  # Health check endpoint
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 40s  # Time to wait before starting health checks
 
 volumes:
   steam-downloads:

@@ -48,6 +48,11 @@ SHARE_URL = ""
 # Define your FastAPI app here
 fastapi_app = FastAPI()
 
+# Health check endpoint
+@fastapi_app.get("/")
+def health_check():
+    return {"status": "healthy", "app": "Steam Downloader"}
+
 def update_share_url(share_url):
     global SHARE_URL
     SHARE_URL = share_url
@@ -940,6 +945,23 @@ def create_improved_gradio_interface():
     
     return app
 
+def start_health_check_server():
+    health_port = int(os.environ.get("HEALTH_PORT", 7861))
+    logging.info(f"Starting health check server on port {health_port}")
+    
+    config = uvicorn.Config(
+        fastapi_app, 
+        host="0.0.0.0", 
+        port=health_port, 
+        log_level="error"
+    )
+    server = uvicorn.Server(config)
+    
+    # Run the server in a separate thread
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    logging.info(f"Health check server running at http://0.0.0.0:{health_port}")
+
 def main():
     # Ensure SteamCMD is installed
     if not check_steamcmd():
@@ -950,24 +972,53 @@ def main():
     app_interface = create_improved_gradio_interface()
     
     # Get server settings from environment variables
-    port = int(os.environ.get("PORT", 7860))  # Fixed port to match docker-compose
+    port = int(os.environ.get("PORT", 7860))
     server_name = os.environ.get("SERVER_NAME", "0.0.0.0")
     
+    # Check if running in Railway
+    is_railway = "RAILWAY_STATIC_URL" in os.environ
+    
+    # Log deployment environment information
     logging.info(f"Starting application on {server_name}:{port}")
+    if is_railway:
+        railway_url = os.environ.get("RAILWAY_STATIC_URL", "")
+        project_name = os.environ.get("RAILWAY_PROJECT_NAME", "")
+        logging.info(f"Running in Railway environment. Project: {project_name}")
+        if railway_url:
+            logging.info(f"Railway provided URL: {railway_url}")
+    
+    # Start health check server
+    start_health_check_server()
     
     # Launch Gradio with consistent settings
     try:
+        # Disable share when running in Railway as we'll use Railway's URL
+        share = not is_railway
+
+        # Launch the Gradio interface
         launch_info = app_interface.launch(
             server_port=port, 
             server_name=server_name, 
             show_error=True,
-            share=True
+            share=share
         )
         
         # Properly capture the share URL
-        if hasattr(launch_info, 'share_url'):
+        if hasattr(launch_info, 'share_url') and launch_info.share_url:
             update_share_url(launch_info.share_url)
             logging.info(f"Gradio share URL: {launch_info.share_url}")
+        else:
+            # Provide Railway URL if available
+            if is_railway and railway_url:
+                public_url = railway_url
+                if not public_url.startswith("http"):
+                    public_url = f"https://{public_url}"
+                logging.info(f"Application accessible at: {public_url}")
+            else:
+                # Provide local URL
+                local_url = f"http://{server_name}:{port}" if server_name != "0.0.0.0" else f"http://localhost:{port}"
+                logging.info(f"Application accessible at: {local_url}")
+                logging.info(f"If deployed on a server, check your provider's dashboard for the public URL")
     except Exception as e:
         logging.error(f"Error launching Gradio interface: {str(e)}")
         raise
