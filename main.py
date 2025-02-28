@@ -793,8 +793,16 @@ def create_gradio_interface():
                 outputs=[remove_output]
             )
             
-            # Automatic refresh every 5 seconds
-            gr.on('every_5_seconds', update_status, [], [active_downloads_json, queue_json, system_stats])
+            # Replace the problematic line with a proper interval
+            gr.Markdown("Status auto-refreshes every 5 seconds")
+            
+            # Set up auto-refresh with JavaScript instead
+            app.load(
+                update_status,
+                inputs=None,
+                outputs=[active_downloads_json, queue_json, system_stats],
+                every=5  # Refresh every 5 seconds
+            )
         
         with gr.Tab("Help"):
             gr.Markdown("""
