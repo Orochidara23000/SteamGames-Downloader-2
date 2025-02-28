@@ -16,6 +16,7 @@ import shutil
 import psutil
 import uvicorn
 from fastapi import FastAPI
+import asyncio
 
 
 # Set up logging to both file and stdout
@@ -47,6 +48,10 @@ SHARE_URL = ""
 
 # Define your FastAPI app here
 fastapi_app = FastAPI()
+
+@fastapi_app.get("/status")
+def get_status():
+    return {"status": "running"}
 
 def update_share_url(share_url):
     global SHARE_URL

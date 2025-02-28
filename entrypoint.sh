@@ -1,23 +1,15 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Print diagnostic information
 echo "Starting Steam Downloader container..."
 echo "Running as user: $(id)"
 echo "Working directory: $(pwd)"
-echo "Steam download path: ${STEAM_DOWNLOAD_PATH}"
+echo "Steam download path: ${STEAM_DOWNLOAD_PATH:-Not set}"
 
-# Ensure SteamCMD directory exists and has proper permissions
-mkdir -p /app/steamcmd
-chmod 755 /app/steamcmd
-
-# Ensure downloads directory exists and has proper permissions
-mkdir -p ${STEAM_DOWNLOAD_PATH}
-chmod 755 ${STEAM_DOWNLOAD_PATH}
-
-# Ensure logs directory exists
-mkdir -p /app/logs
-chmod 755 /app/logs
+# Ensure necessary directories exist and have proper permissions
+mkdir -p /app/steamcmd /app/logs "${STEAM_DOWNLOAD_PATH}"
+chmod 755 /app/steamcmd /app/logs "${STEAM_DOWNLOAD_PATH}"
 
 # If SteamCMD exists, make sure it's executable
 if [ -f "/app/steamcmd/steamcmd.sh" ]; then
@@ -26,8 +18,11 @@ fi
 
 # Run the diagnostic check first
 echo "Running diagnostic checks..."
-python init_check.py
+if ! python3 init_check.py; then
+    echo "Diagnostic checks failed. Exiting."
+    exit 1
+fi
 
 # Start the application and keep it running in the foreground
 echo "Starting main application..."
-exec python main.py
+exec python3 main.py
