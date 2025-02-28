@@ -1150,6 +1150,52 @@ def create_downloads_tab():
         
     return refresh_btn, auto_refresh
 
+def get_downloads_status():
+    try:
+        # Fetch the latest download status
+        status = get_download_status()
+        
+        # Prepare active downloads data
+        active_data = []
+        for download in status["active"]:
+            active_data.append([
+                download["id"],
+                download["name"],
+                f"{download['progress']:.1f}%",
+                download["status"],
+                download["speed"],
+                download["eta"],
+                download["runtime"]
+            ])
+        
+        # Prepare download queue data
+        queue_data = []
+        for item in status["queue"]:
+            queue_data.append([
+                item["position"],
+                item["appid"],
+                item["name"],
+                item["size"],
+                "Yes" if item["validate"] else "No"
+            ])
+        
+        # Prepare system statistics data
+        system_data = [
+            ["CPU Usage", f"{status['system']['cpu_usage']}%"],
+            ["Memory Usage", f"{status['system']['memory_usage']}%"],
+            ["Disk Usage", f"{status['system']['disk_usage']}%"],
+            ["Active Downloads", str(len(status["active"]))],
+            ["Queued Downloads", str(len(status["queue"]))],
+            ["System Uptime", status['system']['uptime']]
+        ]
+        
+        return active_data, queue_data, system_data
+    
+    except Exception as e:
+        logging.error(f"Error fetching download status: {str(e)}")
+        # Return empty data in case of error
+        return [], [], []
+
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
     if not check_steamcmd():
