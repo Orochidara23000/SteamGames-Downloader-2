@@ -1091,9 +1091,9 @@ def create_downloads_tab():
             ]
             
             # Update the tables with new data
-            active_downloads_table.update(active_data)
-            queue_table.update(queue_data)
-            system_stats.update(system_data)
+            active_downloads_table.value = active_data
+            queue_table.value = queue_data
+            system_stats.value = system_data
         
         # Connect events for refreshing data
         refresh_btn.click(
