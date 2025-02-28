@@ -339,11 +339,17 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         # Create download directory if it doesn't exist
         download_dir = get_default_download_location()
         game_name = game_info.get('name', appid)
-        install_dir = os.path.join(download_dir, game_name)
         
-        if not os.path.exists(download_dir):
-            logging.info(f"Creating download directory: {download_dir}")
-            os.makedirs(download_dir, exist_ok=True)
+        # Sanitize game name to avoid path issues
+        sanitized_name = re.sub(r'[^\w\-\.]', '_', game_name)
+        
+        # Create the installation directory path
+        install_dir = os.path.join(download_dir, sanitized_name)
+        
+        # Ensure the installation directory exists
+        os.makedirs(install_dir, exist_ok=True)
+        
+        logging.info(f"Download directory created: {install_dir}")
         
         # Prepare download command
         cmd = [get_steamcmd_path()]
