@@ -11,6 +11,7 @@ import logging
 import json
 import threading
 from datetime import datetime
+import shutil
 
 # Set up logging
 logging.basicConfig(
@@ -22,6 +23,15 @@ logging.basicConfig(
 # Global variables for download management
 active_downloads = {}
 download_queue = []
+
+# Default download location - automatic based on platform
+def get_default_download_location():
+    if platform.system() == "Windows":
+        return os.path.join(os.path.expanduser("~"), "SteamLibrary")
+    elif platform.system() == "Darwin":  # macOS
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "SteamLibrary")
+    else:  # Linux and others
+        return os.path.join(os.path.expanduser("~"), "SteamLibrary")
 
 # Function to get the correct SteamCMD path
 def get_steamcmd_path():
@@ -44,35 +54,72 @@ def install_steamcmd():
     logging.info(f"Installing SteamCMD for {os_type}")
     
     try:
+        # Clean up any existing installation
+        if os.path.exists("./steamcmd"):
+            shutil.rmtree("./steamcmd")
+        
         os.makedirs("./steamcmd", exist_ok=True)
         
         if os_type == "Windows":
             url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
+            logging.info(f"Downloading SteamCMD from {url}")
             response = requests.get(url, timeout=30)
+            
             with open("steamcmd.zip", "wb") as f:
                 f.write(response.content)
+            
+            logging.info("Extracting SteamCMD zip file")
             with zipfile.ZipFile("steamcmd.zip", "r") as zip_ref:
                 zip_ref.extractall("./steamcmd")
+            
             os.remove("steamcmd.zip")
+            
         elif os_type == "Linux" or os_type == "Darwin":  # Linux or macOS
             url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
+            logging.info(f"Downloading SteamCMD from {url}")
             response = requests.get(url, timeout=30)
+            
             with open("steamcmd.tar.gz", "wb") as f:
                 f.write(response.content)
-            with tarfile.open("steamcmd.tar.gz", "r:gz") as tar:
-                tar.extractall("./steamcmd")
+            
+            logging.info("Extracting SteamCMD tar.gz file")
+            # Use separate commands for extraction to avoid potential issues
+            try:
+                if os_type == "Linux":
+                    subprocess.run(["tar", "-xzf", "steamcmd.tar.gz", "-C", "./steamcmd"], check=True)
+                else:
+                    with tarfile.open("steamcmd.tar.gz", "r:gz") as tar:
+                        tar.extractall(path="./steamcmd")
+            except Exception as e:
+                logging.error(f"Error extracting with tar: {str(e)}")
+                logging.info("Trying alternative extraction method")
+                # Alternative extraction method using subprocess
+                subprocess.run(["mkdir", "-p", "./steamcmd"], check=True)
+                subprocess.run(["tar", "-xzf", "steamcmd.tar.gz", "-C", "./steamcmd"], check=True)
+            
             os.remove("steamcmd.tar.gz")
+            
             # Make the script executable
-            os.chmod("./steamcmd/steamcmd.sh", 0o755)
+            if os.path.exists("./steamcmd/steamcmd.sh"):
+                os.chmod("./steamcmd/steamcmd.sh", 0o755)
+                logging.info("Made steamcmd.sh executable")
+            else:
+                logging.error("steamcmd.sh not found after extraction")
+                return "Error: steamcmd.sh not found after extraction"
         else:
             logging.error(f"Unsupported OS: {os_type}")
             return "Unsupported OS."
         
         # Run SteamCMD once to update itself
         logging.info("Running SteamCMD for the first time to complete installation")
-        subprocess.run([get_steamcmd_path(), "+quit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        return "SteamCMD installed successfully."
+        steamcmd_path = get_steamcmd_path()
+        if os.path.exists(steamcmd_path):
+            subprocess.run([steamcmd_path, "+quit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logging.info("SteamCMD initial run completed")
+            return "SteamCMD installed successfully."
+        else:
+            logging.error(f"SteamCMD executable not found at {steamcmd_path}")
+            return f"Error: SteamCMD executable not found at {steamcmd_path}"
     except Exception as e:
         logging.error(f"Error installing SteamCMD: {str(e)}")
         return f"Error installing SteamCMD: {str(e)}"
@@ -200,7 +247,10 @@ def verify_installation(appid, install_path):
     return False
 
 # Function to download the game with progress updates
-def download_game(username, password, guard_code, anonymous, game_input, download_path="./SteamLibrary", validate=True):
+def download_game(username, password, guard_code, anonymous, game_input, validate=True):
+    # Get the automatic download location
+    download_path = get_default_download_location()
+    
     appid = parse_game_input(game_input)
     if not appid:
         yield "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
@@ -247,7 +297,7 @@ def download_game(username, password, guard_code, anonymous, game_input, downloa
     start_time = time.time()
     active_downloads[download_id]["start_time"] = start_time
     
-    logging.info(f"Starting download for App ID: {appid}, Command: {cmd_args}")
+    logging.info(f"Starting download for App ID: {appid}, Command: {' '.join(cmd_args)}")
     
     # Run SteamCMD
     try:
@@ -352,7 +402,7 @@ def download_game(username, password, guard_code, anonymous, game_input, downloa
     process_download_queue()
 
 # Function to add a download to the queue
-def queue_download(username, password, guard_code, anonymous, game_input, download_path="./SteamLibrary", validate=True):
+def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     if not anonymous and (not username or not password):
         return "Error: Username and password are required for non-anonymous downloads."
     
@@ -363,7 +413,7 @@ def queue_download(username, password, guard_code, anonymous, game_input, downlo
     # Add the download to the queue
     download_queue.append({
         "function": download_game,
-        "args": (username, password, guard_code, anonymous, game_input, download_path, validate)
+        "args": (username, password, guard_code, anonymous, game_input, validate)
     })
     
     # Start processing the queue if not already processing
@@ -373,9 +423,10 @@ def queue_download(username, password, guard_code, anonymous, game_input, downlo
     return f"Added game with App ID {appid} to the download queue. Position: {len(download_queue)}"
 
 # Function to get a list of installed games
-def list_installed_games(library_path="./SteamLibrary"):
+def list_installed_games():
+    library_path = get_default_download_location()
     if not os.path.exists(library_path):
-        return "Library folder not found."
+        return f"Library folder not found at {library_path}."
     
     games = []
     for item in os.listdir(library_path):
@@ -407,9 +458,9 @@ def list_installed_games(library_path="./SteamLibrary"):
                 })
     
     if not games:
-        return "No games found in the library."
+        return f"No games found in the library at {library_path}."
     
-    result = "Installed Games:\n"
+    result = f"Installed Games (in {library_path}):\n"
     for game in games:
         result += f"- {game['name']}"
         if 'appid' in game:
@@ -451,6 +502,7 @@ with gr.Blocks(title="Steam Games Downloader") as app:
             install_button = gr.Button("Install SteamCMD")
         
         setup_output = gr.Textbox(label="Status", lines=5)
+        gr.Markdown(f"### Download Location\nGames will be automatically downloaded to: **{get_default_download_location()}**")
     
     # Download section
     with gr.Tab("Download Games"):
@@ -469,7 +521,6 @@ with gr.Blocks(title="Steam Games Downloader") as app:
                 with gr.Group():
                     gr.Markdown("#### Game Information")
                     game_input = gr.Textbox(label="Game ID or URL (e.g., 570 or https://store.steampowered.com/app/570/)")
-                    download_path = gr.Textbox(label="Download Location", value="./SteamLibrary")
                     validate_download = gr.Checkbox(label="Verify After Download", value=True)
                 
                 with gr.Row():
@@ -482,7 +533,6 @@ with gr.Blocks(title="Steam Games Downloader") as app:
     with gr.Tab("Library"):
         gr.Markdown("### Game Library")
         with gr.Row():
-            library_path = gr.Textbox(label="Library Path", value="./SteamLibrary")
             refresh_button = gr.Button("Refresh Library")
         
         library_output = gr.Textbox(label="Installed Games", lines=10)
@@ -502,6 +552,12 @@ with gr.Blocks(title="Steam Games Downloader") as app:
         - Download queue for multiple games
         - Game installation verification
         
+        ### Download Location
+        Games are automatically saved to a platform-specific location:
+        - Windows: ~/SteamLibrary
+        - macOS: ~/Library/Application Support/SteamLibrary
+        - Linux: ~/SteamLibrary
+        
         ### Credits
         - SteamCMD by Valve Corporation
         - Built with Gradio
@@ -511,11 +567,6 @@ with gr.Blocks(title="Steam Games Downloader") as app:
         """)
     
     # Event handlers
-    def update_check_result(result):
-        if "not installed" in result.lower():
-            return gr.update(visible=True)
-        return gr.update(visible=False)
-    
     check_button.click(check_steamcmd, outputs=setup_output)
     install_button.click(install_steamcmd, outputs=setup_output)
     
@@ -526,11 +577,11 @@ with gr.Blocks(title="Steam Games Downloader") as app:
     anonymous.change(update_login_fields, inputs=[anonymous], outputs=[username, password, guard_code])
     
     # Download buttons
-    download_button.click(download_game, inputs=[username, password, guard_code, anonymous, game_input, download_path, validate_download], outputs=download_output)
-    queue_button.click(queue_download, inputs=[username, password, guard_code, anonymous, game_input, download_path, validate_download], outputs=download_output)
+    download_button.click(download_game, inputs=[username, password, guard_code, anonymous, game_input, validate_download], outputs=download_output)
+    queue_button.click(queue_download, inputs=[username, password, guard_code, anonymous, game_input, validate_download], outputs=download_output)
     
     # Library buttons
-    refresh_button.click(list_installed_games, inputs=[library_path], outputs=library_output)
+    refresh_button.click(list_installed_games, outputs=library_output)
 
 # Launch the app
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 - Library management to view installed games
 - Cross-platform support (Windows, Linux, macOS)
 - Detailed logging for troubleshooting
+- Automatic download location management
 
 ## Installation
 
@@ -48,14 +49,19 @@ This project is a Steam games downloader that uses [SteamCMD](https://developer.
 2. For free games, keep "Anonymous Login" checked
 3. For paid games, uncheck "Anonymous Login" and enter your Steam credentials
 4. Enter a game ID or Steam store URL in the "Game ID or URL" field
-5. Specify a download location (defaults to "./SteamLibrary")
-6. Click "Download Now" to start downloading immediately, or "Add to Queue" to queue the download
+5. Click "Download Now" to start downloading immediately, or "Add to Queue" to queue the download
+
+### Download Locations
+
+Games are automatically saved to a platform-specific location:
+- Windows: ~/SteamLibrary
+- macOS: ~/Library/Application Support/SteamLibrary
+- Linux: ~/SteamLibrary
 
 ### Managing Your Library
 
 1. Go to the "Library" tab
-2. Set your library path if different from the default
-3. Click "Refresh Library" to view installed games and their sizes
+2. Click "Refresh Library" to view installed games and their sizes
 
 ## Security Notes
 
