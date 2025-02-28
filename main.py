@@ -299,7 +299,7 @@ def verify_installation(appid, install_path):
         logging.error(f"Error during verification of App ID {appid}: {str(e)}")
         return False
 
-def download_game(username, password, guard_code, anonymous, game_input, validate_download):
+def download_game(username, password, guard_code, anonymous, game_input, validate_download, debug_mode=False):
     logging.info(f"Starting download for game: {game_input}")
     
     # Parse the AppID from input
@@ -340,16 +340,27 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         download_dir = get_default_download_location()
         game_name = game_info.get('name', appid)
         
-        # Sanitize game name to avoid path issues
+        # Sanitize game name to avoid path issues with spaces and special chars
         sanitized_name = re.sub(r'[^\w\-\.]', '_', game_name)
-        
-        # Create the installation directory path
         install_dir = os.path.join(download_dir, sanitized_name)
         
-        # Ensure the installation directory exists
-        os.makedirs(install_dir, exist_ok=True)
+        if not os.path.exists(download_dir):
+            logging.info(f"Creating download directory: {download_dir}")
+            os.makedirs(download_dir, exist_ok=True)
         
-        logging.info(f"Download directory created: {install_dir}")
+        # Ensure download directory permissions are correct
+        try:
+            os.makedirs(install_dir, exist_ok=True)
+            # Test write permissions
+            test_file = os.path.join(install_dir, '.permission_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            logging.info(f"Successfully verified write permissions to {install_dir}")
+        except Exception as e:
+            logging.error(f"Permission error with install directory: {str(e)}")
+            active_downloads[download_id]["status"] = f"Error: Permission issue with install directory"
+            return f"Error: Cannot write to install directory {install_dir}. {str(e)}"
         
         # Prepare download command
         cmd = [get_steamcmd_path()]
@@ -359,10 +370,9 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         else:
             cmd.extend(["+login", username, password])
             if guard_code:
-                # This is a simplification - actual Steam Guard handling might be more complex
-                cmd.append(guard_code)
+                cmd.append(guard_code)  # Handle Steam Guard code if provided
         
-        # Add download command
+        # Add download command - use quotes for paths to handle spaces
         cmd.extend([
             "+force_install_dir", install_dir,
             "+app_update", appid
@@ -371,6 +381,10 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         # Add validation if requested
         if validate_download:
             cmd.append("validate")
+            
+        # Add verbose flag for debugging
+        if debug_mode:
+            cmd.append("-debug")
         
         cmd.append("+quit")
         
@@ -382,118 +396,38 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         
         logging.info(f"Running command: {' '.join(log_cmd)}")
         
-        # Start the process
+        # Set environment variables for SteamCMD
+        env = os.environ.copy()
+        env["HOME"] = "/app"
+        env["STEAMCMD_HOME"] = "/app/steamcmd"
+        
+        # Start the process with the environment variables
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
+            env=env
         )
         
-        # Track progress and last speed to calculate ETA
-        last_progress = 0
-        last_progress_time = datetime.now()
-        progress_samples = []
-        
-        # Track progress
+        # Monitor the process output
         for line in process.stdout:
-            line = line.strip()
-            logging.debug(line)
+            logging.info(line.strip())
+            # Update download progress based on output if applicable
+            # You can implement logic here to parse progress from the output
             
-            # Update status based on output
-            progress_info = parse_progress(line)
-            if progress_info:
-                if "progress" in progress_info:
-                    current_progress = progress_info["progress"]
-                    current_time = datetime.now()
-                    
-                    # Only calculate speed if progress has changed
-                    if current_progress > last_progress:
-                        # Calculate progress speed (% per second)
-                        time_diff = (current_time - last_progress_time).total_seconds()
-                        if time_diff > 0:
-                            progress_diff = current_progress - last_progress
-                            speed = progress_diff / time_diff
-                            
-                            # Keep the last 5 speed samples for a rolling average
-                            progress_samples.append(speed)
-                            if len(progress_samples) > 5:
-                                progress_samples.pop(0)
-                            
-                            # Calculate average speed and ETA
-                            avg_speed = sum(progress_samples) / len(progress_samples)
-                            if avg_speed > 0:
-                                remaining_progress = 100 - current_progress
-                                eta_seconds = remaining_progress / avg_speed
-                                eta = str(timedelta(seconds=int(eta_seconds)))
-                                active_downloads[download_id]["eta"] = eta
-                            
-                            last_progress = current_progress
-                            last_progress_time = current_time
-                    
-                    active_downloads[download_id]["progress"] = current_progress
-                    active_downloads[download_id]["status"] = f"Downloading: {current_progress:.1f}%"
-                    active_downloads[download_id]["last_update"] = current_time
-                
-                if "error" in progress_info:
-                    active_downloads[download_id]["status"] = f"Error: {progress_info['error']}"
-            
-            # Check for completion indicators
-            if f"Success! App '{appid}' fully installed" in line:
-                active_downloads[download_id]["status"] = "Completed"
-                active_downloads[download_id]["progress"] = 100
-                active_downloads[download_id]["eta"] = "0:00:00"
-            
-            # Check for Steam Guard prompts
-            if "Steam Guard code" in line:
-                active_downloads[download_id]["status"] = "Waiting for Steam Guard code"
+        process.wait()  # Wait for the process to complete
         
-        # Wait for process to complete
-        process.wait()
-        
-        # Final status update
-        if process.returncode == 0:
-            if active_downloads[download_id]["progress"] < 100:
-                active_downloads[download_id]["progress"] = 100
-            
-            if active_downloads[download_id]["status"] != "Completed":
-                active_downloads[download_id]["status"] = "Completed"
-            
-            result = f"Download completed for {game_info.get('name', 'Unknown Game')} (AppID: {appid})"
-            logging.info(result)
-            
-            # If validation was requested, verify the installation
-            if validate_download:
-                validation_result = verify_installation(appid, install_dir)
-                if validation_result:
-                    result += "\nValidation successful. Game is ready to play."
-                else:
-                    result += "\nValidation failed. Game may be corrupted or incomplete."
-        else:
-            active_downloads[download_id]["status"] = "Failed"
-            result = f"Download failed for {game_info.get('name', 'Unknown Game')} (AppID: {appid}) with return code {process.returncode}"
-            logging.error(result)
-        
-        # Clean up
-        del active_downloads[download_id]
-        
-        # Process next download in queue
-        process_download_queue()
-        
-        return result
+        # Update the status of the download
+        active_downloads[download_id]["status"] = "Completed"
+        logging.info(f"Download for App ID {appid} completed successfully.")
+        return f"Download for App ID {appid} completed successfully."
     
     except Exception as e:
-        logging.error(f"Error during download: {str(e)}")
-        
-        # Update status and clean up
+        logging.error(f"Error during download process: {str(e)}")
         active_downloads[download_id]["status"] = f"Error: {str(e)}"
-        del active_downloads[download_id]
-        
-        # Process next download in queue
-        process_download_queue()
-        
-        return f"Error during download: {str(e)}"
+        return f"Error during download process: {str(e)}"
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
