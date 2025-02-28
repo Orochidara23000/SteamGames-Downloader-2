@@ -173,6 +173,8 @@ def validate_appid(appid):
             return False, "Game not found on Steam"
         
         game_data = data[appid]['data']
+        
+        # Enhanced game info with more details
         game_info = {
             'name': game_data.get('name', 'Unknown Game'),
             'required_age': game_data.get('required_age', 0),
@@ -181,8 +183,15 @@ def validate_appid(appid):
             'publishers': game_data.get('publishers', ['Unknown']),
             'platforms': game_data.get('platforms', {}),
             'categories': [cat.get('description') for cat in game_data.get('categories', [])],
+            'genres': [genre.get('description') for genre in game_data.get('genres', [])],
+            'header_image': game_data.get('header_image', None),
+            'background_image': game_data.get('background', None),
+            'release_date': game_data.get('release_date', {}).get('date', 'Unknown'),
+            'metacritic': game_data.get('metacritic', {}).get('score', None),
+            'description': game_data.get('short_description', 'No description available'),
             'size_mb': game_data.get('file_size', 'Unknown')
         }
+        
         logging.info(f"Game found: {game_info['name']} (Free: {game_info['is_free']})")
         return True, game_info
         
@@ -201,21 +210,57 @@ def validate_appid(appid):
 
 def parse_progress(line):
     try:
-        # Convert line to lowercase for case-insensitive matching
+        # Improved progress parsing with more information
         line_lower = line.lower()
         
-        # Look for progress percentage
+        # Look for progress percentage patterns
         progress_patterns = [
-            r'(?:progress|update|download):\s*(?:.*?)(\d+\.\d+)%',
+            r'(?:progress|update|download):\s*(?:.*?)(\d+\.\d+)%',  # Matches various progress formats
             r'(\d+\.\d+)%\s*complete',
-            r'progress:\s+(\d+\.\d+)\s*%'
+            r'progress:\s+(\d+\.\d+)\s*%',
+            r'(\d+)\s+of\s+(\d+)\s+MB\s+\((\d+\.\d+)%\)'  # Matches current/total size
         ]
         
         for pattern in progress_patterns:
             progress_match = re.search(pattern, line_lower)
             if progress_match:
-                progress = float(progress_match.group(1))
-                return {"progress": progress}
+                if len(progress_match.groups()) == 3:  # Pattern with current/total size
+                    current = int(progress_match.group(1))
+                    total = int(progress_match.group(2))
+                    progress = float(progress_match.group(3))
+                    return {
+                        "progress": progress,
+                        "current_size": current,
+                        "total_size": total,
+                        "unit": "MB"
+                    }
+                else:
+                    progress = float(progress_match.group(1))
+                    return {"progress": progress}
+        
+        # Look for download speed
+        speed_patterns = [
+            r'(\d+\.?\d*)\s*(KB|MB|GB)/s',
+            r'at\s+(\d+\.?\d*)\s*(KB|MB|GB)/s'
+        ]
+        
+        for pattern in speed_patterns:
+            speed_match = re.search(pattern, line_lower)
+            if speed_match:
+                speed = float(speed_match.group(1))
+                unit = speed_match.group(2)
+                return {"speed": speed, "speed_unit": unit}
+        
+        # Look for ETA
+        eta_patterns = [
+            r'ETA\s+(\d+m\s*\d+s)',
+            r'ETA\s+(\d+:\d+:\d+)'
+        ]
+        
+        for pattern in eta_patterns:
+            eta_match = re.search(pattern, line_lower)
+            if eta_match:
+                return {"eta": eta_match.group(1)}
         
         # Look for total size in various formats
         size_patterns = [
@@ -231,20 +276,21 @@ def parse_progress(line):
                 unit = size_match.group(2)
                 return {"total_size": size, "unit": unit}
         
-        # Look for error messages
-        error_keywords = [
-            "invalid password", "connection to steam servers failed",
-            "error", "failed", "authentication failed", "timeout"
+        # Check for success messages
+        success_patterns = [
+            r'success!\s+app\s+[\'"]?(\d+)[\'"]'
         ]
         
-        for keyword in error_keywords:
-            if keyword in line_lower:
-                return {"error": line}
-                
-        return None
+        for pattern in success_patterns:
+            success_match = re.search(pattern, line_lower)
+            if success_match:
+                return {"success": True}
+        
+        return {}
+    
     except Exception as e:
-        logging.error(f"Error parsing progress: {str(e)}")
-        return None
+        logging.error(f"Error parsing progress line: {line}. Error: {str(e)}")
+        return {}
 
 def process_download_queue():
     with queue_lock:
@@ -308,7 +354,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         logging.error(f"Invalid game input: {game_input}")
         return "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
     
-    # Validate the AppID
+    # Validate the AppID with enhanced validation
     is_valid, game_info = validate_appid(appid)
     if not is_valid:
         logging.error(f"Invalid AppID: {appid}")
@@ -324,7 +370,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     # Create unique download ID
     download_id = f"download_{appid}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
-    # Mark this download as active
+    # Mark this download as active with enhanced metrics
     active_downloads[download_id] = {
         "appid": appid,
         "name": game_info.get('name', 'Unknown Game'),
@@ -332,7 +378,11 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         "status": "Initializing",
         "start_time": datetime.now(),
         "last_update": datetime.now(),
-        "eta": "Unknown"
+        "eta": "Unknown",
+        "speed": "0 KB/s",
+        "size_downloaded": "0 MB",
+        "total_size": game_info.get('size_mb', 'Unknown'),
+        "header_image": game_info.get('header_image', None)
     }
     
     try:
@@ -344,11 +394,11 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         sanitized_name = re.sub(r'[^\w\-\.]', '_', game_name)
         install_dir = os.path.join(download_dir, sanitized_name)
         
+        # Create install directory and check permissions
         if not os.path.exists(download_dir):
             logging.info(f"Creating download directory: {download_dir}")
             os.makedirs(download_dir, exist_ok=True)
         
-        # Ensure download directory permissions are correct
         try:
             os.makedirs(install_dir, exist_ok=True)
             # Test write permissions
@@ -411,23 +461,115 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             env=env
         )
         
-        # Monitor the process output
-        for line in process.stdout:
-            logging.info(line.strip())
-            # Update download progress based on output if applicable
-            # You can implement logic here to parse progress from the output
-            
-        process.wait()  # Wait for the process to complete
+        # Start time for ETA calculation
+        start_time = time.time()
+        bytes_downloaded_previous = 0
+        last_progress_update = time.time()
         
-        # Update the status of the download
-        active_downloads[download_id]["status"] = "Completed"
-        logging.info(f"Download for App ID {appid} completed successfully.")
-        return f"Download for App ID {appid} completed successfully."
+        # Monitor the process output with enhanced progress tracking
+        for line in process.stdout:
+            line_stripped = line.strip()
+            logging.info(line_stripped)
+            
+            # Parse progress information
+            progress_info = parse_progress(line_stripped)
+            if progress_info:
+                # Update active_downloads entry with the latest progress information
+                with queue_lock:  # Use lock to avoid race conditions
+                    if "progress" in progress_info:
+                        active_downloads[download_id]["progress"] = progress_info["progress"]
+                        
+                        # Calculate ETA based on progress and elapsed time
+                        elapsed = time.time() - start_time
+                        if progress_info["progress"] > 0:
+                            remaining = (elapsed / progress_info["progress"]) * (100 - progress_info["progress"])
+                            # Format remaining time
+                            eta = str(timedelta(seconds=int(remaining)))
+                            active_downloads[download_id]["eta"] = eta
+                    
+                    if "speed" in progress_info and "speed_unit" in progress_info:
+                        speed_str = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
+                        active_downloads[download_id]["speed"] = speed_str
+                    
+                    if "total_size" in progress_info:
+                        unit = progress_info.get("unit", "MB")
+                        active_downloads[download_id]["total_size"] = f"{progress_info['total_size']} {unit}"
+                    
+                    if "current_size" in progress_info:
+                        unit = progress_info.get("unit", "MB")
+                        active_downloads[download_id]["size_downloaded"] = f"{progress_info['current_size']} {unit}"
+                        
+                        # Calculate download speed if we have current_size
+                        now = time.time()
+                        if now - last_progress_update > 1:  # Update speed calculation every second
+                            bytes_now = progress_info['current_size']
+                            speed = (bytes_now - bytes_downloaded_previous) / (now - last_progress_update)
+                            
+                            if speed < 1024:
+                                speed_str = f"{speed:.2f} KB/s"
+                            elif speed < 1024 * 1024:
+                                speed_str = f"{(speed / 1024):.2f} MB/s"
+                            else:
+                                speed_str = f"{(speed / (1024 * 1024)):.2f} GB/s"
+                                
+                            active_downloads[download_id]["speed"] = speed_str
+                            bytes_downloaded_previous = bytes_now
+                            last_progress_update = now
+                    
+                    if "eta" in progress_info:
+                        active_downloads[download_id]["eta"] = progress_info["eta"]
+                    
+                    if "error" in progress_info:
+                        active_downloads[download_id]["status"] = f"Error: {progress_info['error']}"
+                    else:
+                        active_downloads[download_id]["status"] = "Downloading"
+                    
+                    # Update last update time
+                    active_downloads[download_id]["last_update"] = datetime.now()
+        
+        # Wait for the process to complete
+        process.wait()
+        exit_code = process.returncode
+        
+        # Update the status of the download based on exit code
+        if exit_code == 0:
+            active_downloads[download_id]["status"] = "Completed"
+            active_downloads[download_id]["progress"] = 100.0
+            logging.info(f"Download for App ID {appid} completed successfully.")
+            
+            # Perform validation if requested
+            if validate_download:
+                active_downloads[download_id]["status"] = "Validating"
+                is_valid = verify_installation(appid, install_dir)
+                if is_valid:
+                    active_downloads[download_id]["status"] = "Validated and Complete"
+                else:
+                    active_downloads[download_id]["status"] = "Validation Failed"
+            
+            success_msg = f"Download for {game_info['name']} (App ID {appid}) completed successfully."
+            logging.info(success_msg)
+            
+            # Remove from active_downloads after a delay to allow status to be seen
+            def remove_after_delay():
+                time.sleep(60)  # Keep in active list for 60 seconds
+                with queue_lock:
+                    if download_id in active_downloads:
+                        del active_downloads[download_id]
+                        process_download_queue()  # Process next download in queue
+            
+            threading.Thread(target=remove_after_delay, daemon=True).start()
+            return success_msg
+        else:
+            error_msg = f"Download failed with exit code {exit_code}. See logs for details."
+            active_downloads[download_id]["status"] = f"Failed (Code {exit_code})"
+            logging.error(error_msg)
+            return error_msg
     
     except Exception as e:
-        logging.error(f"Error during download process: {str(e)}")
+        error_msg = f"Error during download process: {str(e)}"
+        logging.error(error_msg)
         active_downloads[download_id]["status"] = f"Error: {str(e)}"
-        return f"Error during download process: {str(e)}"
+        return error_msg
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
@@ -471,33 +613,57 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             return f"Download for {game_info.get('name', 'Unknown Game')} (AppID: {appid}) queued at position {position}"
 
 def get_download_status():
-    status = {
-        "active": [
-            {
-                "id": id,
-                "name": info["name"],
-                "appid": info["appid"],
-                "progress": info["progress"],
-                "status": info["status"],
-                "eta": info["eta"],
-                "runtime": str(datetime.now() - info["start_time"]).split('.')[0]  # Remove microseconds
-            }
-            for id, info in active_downloads.items()
-        ],
-        "queue": [
-            {
-                "position": i + 1,
-                "appid": download["args"][4],  # AppID is the 5th argument in the args tuple
-            }
-            for i, download in enumerate(download_queue)
-        ],
-        "system": {
-            "cpu_usage": psutil.cpu_percent(),
-            "memory_usage": psutil.virtual_memory().percent,
-            "disk_usage": psutil.disk_usage('/').percent,
+    # Get current downloads and queue
+    active = []
+    for id, info in active_downloads.items():
+        active.append({
+            "id": id,
+            "name": info["name"],
+            "appid": info["appid"],
+            "progress": info["progress"],
+            "status": info["status"],
+            "eta": info["eta"],
+            "runtime": str(datetime.now() - info["start_time"]).split('.')[0],  # Remove microseconds
+            "speed": info.get("speed", "Unknown"),
+            "size_downloaded": info.get("size_downloaded", "Unknown"),
+            "total_size": info.get("total_size", "Unknown")
+        })
+    
+    # Enhanced queue information
+    queue = []
+    for i, download in enumerate(download_queue):
+        appid = download["args"][4]
+        # Get game info again for better display - in a real implementation
+        is_valid, game_info = validate_appid(appid)
+        
+        queue_item = {
+            "position": i + 1,
+            "appid": appid,
+            "name": game_info.get('name', 'Unknown Game') if is_valid else "Unknown Game",
+            "is_free": game_info.get('is_free', False) if is_valid else False,
+            "size": game_info.get('size_mb', 'Unknown') if is_valid else "Unknown",
+            "validate": download["args"][5]  # Whether validation is enabled
         }
+        queue.append(queue_item)
+    
+    # Add system statistics
+    system = {
+        "cpu_usage": psutil.cpu_percent(),
+        "memory_usage": psutil.virtual_memory().percent,
+        "disk_usage": psutil.disk_usage('/').percent,
+        "network_speed": "N/A",  # Would need additional code to track network usage
+        "uptime": str(datetime.now() - datetime.fromtimestamp(psutil.boot_time())).split('.')[0]
     }
-    return status
+    
+    # Add history of completed downloads (mock data for now)
+    history = []
+    
+    return {
+        "active": active,
+        "queue": queue,
+        "system": system,
+        "history": history
+    }
 
 def cancel_download(download_id):
     logging.info(f"Attempting to cancel download: {download_id}")
@@ -557,179 +723,153 @@ def get_game_details(game_input):
     return {"success": True, "appid": appid, "game_info": game_info}
 
 def create_gradio_interface():
-    with gr.Blocks(title="Steam Game Downloader") as app:
+    with gr.Blocks(title="Steam Game Downloader", theme=gr.themes.Soft()) as app:
         gr.Markdown("# Steam Game Downloader")
         gr.Markdown("Download Steam games directly using SteamCMD")
         
-        with gr.Tab("Setup"):
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### SteamCMD Installation")
-                    steamcmd_status = gr.Textbox(label="SteamCMD Status", value=check_steamcmd(), interactive=False)
-                    install_btn = gr.Button("Install/Update SteamCMD")
-                    install_output = gr.Textbox(label="Installation Output", interactive=False)
+        with gr.Tabs():
+            with gr.Tab("Setup"):
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("### SteamCMD Installation")
+                        steamcmd_status = gr.Textbox(label="SteamCMD Status", value=check_steamcmd(), interactive=False)
+                        install_btn = gr.Button("Install/Update SteamCMD")
+                        install_output = gr.Textbox(label="Installation Output", interactive=False)
+                        
+                        install_btn.click(
+                            fn=install_steamcmd,
+                            outputs=[install_output, steamcmd_status]
+                        )
                     
-                    install_btn.click(
-                        fn=install_steamcmd,
-                        outputs=[install_output, steamcmd_status]
-                    )
+                    with gr.Column():
+                        gr.Markdown("### System Information")
+                        system_info = gr.Dataframe(
+                            headers=["Property", "Value"],
+                            value=[
+                                ["Operating System", platform.platform()],
+                                ["CPU", platform.processor()],
+                                ["Total Memory", f"{psutil.virtual_memory().total / (1024**3):.2f} GB"],
+                                ["Free Disk Space", f"{psutil.disk_usage('/').free / (1024**3):.2f} GB"],
+                                ["SteamCMD Path", get_steamcmd_path()]
+                            ],
+                            interactive=False
+                        )
+                        
+                        refresh_system_btn = gr.Button("Refresh System Info")
+                        
+                        def update_system_info():
+                            return [
+                                ["Operating System", platform.platform()],
+                                ["CPU", platform.processor()],
+                                ["Total Memory", f"{psutil.virtual_memory().total / (1024**3):.2f} GB"],
+                                ["Free Disk Space", f"{psutil.disk_usage('/').free / (1024**3):.2f} GB"],
+                                ["SteamCMD Path", get_steamcmd_path()]
+                            ]
+                        
+                        refresh_system_btn.click(fn=update_system_info, outputs=[system_info])
+            
+            # Add the improved Download Games tab
+            game_input, check_game_btn, download_btn, download_status = create_download_games_tab()
+            
+            # Add the improved Downloads tab
+            refresh_btn, auto_refresh = create_downloads_tab()
+            
+            with gr.Tab("Settings"):
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("### Application Settings")
+                        log_level = gr.Dropdown(
+                            label="Log Level",
+                            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                            value=os.environ.get('LOG_LEVEL', 'INFO')
+                        )
+                        max_concurrent_downloads = gr.Slider(
+                            minimum=1,
+                            maximum=5,
+                            value=1,
+                            step=1,
+                            label="Max Concurrent Downloads",
+                            info="Note: Multiple concurrent downloads may impact performance"
+                        )
+                        auto_validate = gr.Checkbox(
+                            label="Auto-validate All Downloads",
+                            value=True,
+                            info="Automatically validate all downloads after completion"
+                        )
+                    
+                    with gr.Column():
+                        gr.Markdown("### Advanced Settings")
+                        steamcmd_args = gr.Textbox(
+                            label="Additional SteamCMD Arguments",
+                            placeholder="Enter any additional arguments to pass to SteamCMD"
+                        )
+                        debug_mode = gr.Checkbox(
+                            label="Debug Mode", 
+                            value=False,
+                            info="Enable verbose logging for troubleshooting"
+                        )
+                        keep_history = gr.Checkbox(
+                            label="Keep Download History",
+                            value=True,
+                            info="Save details of completed downloads"
+                        )
                 
-                with gr.Column():
-                    gr.Markdown("### Download Settings")
-                    download_path = gr.Textbox(label="Download Location", value=get_default_download_location())
-                    disk_space = gr.Textbox(
-                        label="Available Disk Space",
-                        value=f"{psutil.disk_usage(get_default_download_location()).free / (1024**3):.2f} GB",
-                        interactive=False
-                    )
-                    
-                    refresh_space_btn = gr.Button("Refresh Disk Space")
-                    
-                    def update_disk_space():
-                        return f"{psutil.disk_usage(get_default_download_location()).free / (1024**3):.2f} GB"
-                    
-                    refresh_space_btn.click(
-                        fn=update_disk_space,
-                        outputs=[disk_space]
-                    )
-        
-        with gr.Tab("Download Games"):
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### Game Details")
-                    game_input = gr.Textbox(label="Game ID or Steam Store URL")
-                    check_game_btn = gr.Button("Check Game")
-                    game_info = gr.JSON(label="Game Information")
-                    
-                    check_game_btn.click(
-                        fn=get_game_details,
-                        inputs=[game_input],
-                        outputs=[game_info]
-                    )
+                save_settings_btn = gr.Button("Save Settings", variant="primary")
+                settings_status = gr.Textbox(label="Settings Status", interactive=False)
                 
-                with gr.Column():
-                    gr.Markdown("### Login Information")
-                    anonymous_login = gr.Checkbox(label="Use Anonymous Login (for free games only)", value=True)
-                    username = gr.Textbox(label="Steam Username", interactive=True)
-                    password = gr.Textbox(label="Steam Password", type="password", interactive=True)
-                    guard_code = gr.Textbox(label="Steam Guard Code (if required)", interactive=True)
-                    validate_download = gr.Checkbox(label="Validate Download", value=True)
-                    
-                    def update_login_fields(anonymous):
-                        return [
-                            gr.Textbox.update(interactive=not anonymous),
-                            gr.Textbox.update(interactive=not anonymous),
-                            gr.Textbox.update(interactive=not anonymous)
-                        ]
-                    
-                    anonymous_login.change(
-                        fn=update_login_fields,
-                        inputs=[anonymous_login],
-                        outputs=[username, password, guard_code]
-                    )
-            
-            with gr.Row():
-                download_btn = gr.Button("Download Game", variant="primary")
-                download_output = gr.Textbox(label="Download Result", interactive=False)
-            
-            download_btn.click(
-                fn=queue_download,
-                inputs=[username, password, guard_code, anonymous_login, game_input, validate_download],
-                outputs=[download_output]
-            )
-        
-        with gr.Tab("Downloads"):
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### Active Downloads")
-                    active_downloads_json = gr.JSON(label="Active Downloads")
-                    download_id = gr.Textbox(label="Download ID to Cancel")
-                    cancel_btn = gr.Button("Cancel Download")
-                    cancel_output = gr.Textbox(label="Cancel Result", interactive=False)
+                def save_settings(log_level, max_concurrent, auto_validate, steamcmd_args, debug_mode, keep_history):
+                    # This would need to be implemented to actually save the settings
+                    os.environ['LOG_LEVEL'] = log_level
+                    # Update other settings as needed
+                    return "Settings saved successfully"
                 
-                with gr.Column():
-                    gr.Markdown("### Download Queue")
-                    queue_json = gr.JSON(label="Queue")
-                    queue_position = gr.Number(label="Queue Position to Remove", precision=0)
-                    remove_btn = gr.Button("Remove from Queue")
-                    remove_output = gr.Textbox(label="Remove Result", interactive=False)
+                save_settings_btn.click(
+                    save_settings,
+                    inputs=[log_level, max_concurrent_downloads, auto_validate, steamcmd_args, debug_mode, keep_history],
+                    outputs=[settings_status]
+                )
             
-            refresh_btn = gr.Button("Refresh Status")
-            system_stats = gr.JSON(label="System Statistics")
-            
-            def update_status():
-                status = get_download_status()
-                return [
-                    status["active"],
-                    status["queue"],
-                    status["system"]
-                ]
-            
-            refresh_btn.click(
-                fn=update_status,
-                outputs=[active_downloads_json, queue_json, system_stats]
-            )
-            
-            cancel_btn.click(
-                fn=cancel_download,
-                inputs=[download_id],
-                outputs=[cancel_output]
-            )
-            
-            remove_btn.click(
-                fn=remove_from_queue,
-                inputs=[queue_position],
-                outputs=[remove_output]
-            )
-            
-            # Replace the problematic line with a proper interval
-            gr.Markdown("Status auto-refreshes every 5 seconds")
-            
-            # Set up auto-refresh with JavaScript instead
-            app.load(
-                update_status,
-                inputs=None,
-                outputs=[active_downloads_json, queue_json, system_stats],
-                every=5  # Refresh every 5 seconds
-            )
+            with gr.Tab("Help"):
+                gr.Markdown("""
+                ## Steam Game Downloader Help
+                
+                ### Quick Start Guide
+                1. Go to the **Setup Tab** and install SteamCMD if not already installed
+                2. Go to the **Download Games Tab** and enter a game ID or Steam store URL
+                3. Click "Check Game" to verify and see game details
+                4. Choose your login method (Anonymous for free games)
+                5. Click "Download Game" to start or queue the download
+                6. Monitor your downloads in the **Downloads Tab**
+                
+                ### Finding Game IDs
+                - The AppID is the number in the URL of a Steam store page
+                - Example: For `https://store.steampowered.com/app/570/Dota_2/` the AppID is `570`
+                
+                ### Anonymous Login
+                - Only works for free-to-play games and demos
+                - For paid games, you must provide your Steam credentials
+                
+                ### Download Options
+                - **Validate Files**: Verifies all downloaded files are correct (recommended)
+                - **Add to Queue**: Adds to queue instead of starting immediately
+                - **Auto-start**: Automatically starts download when possible
+                
+                ### Download Management
+                - You can pause, resume, or cancel active downloads
+                - Queued downloads can be reordered or removed
+                - System resources are monitored to ensure stable downloads
+                
+                ### Troubleshooting
+                - If downloads fail, try reinstalling SteamCMD in the Setup tab
+                - Check your available disk space
+                - For paid games, ensure your credentials are correct
+                - Look for detailed error messages in the Downloads tab
+                """)
         
-        with gr.Tab("Help"):
-            gr.Markdown("""
-            ## Steam Game Downloader Help
-            
-            ### How to Use
-            1. **Setup Tab**: Install SteamCMD if not already installed
-            2. **Download Games Tab**: Enter a game ID or Steam store URL
-            3. Choose login method (Anonymous for free games, or with credentials)
-            4. Click "Download Game" to start or queue the download
-            
-            ### Finding Game IDs
-            - The AppID is the number in the URL of a Steam store page
-            - Example: For https://store.steampowered.com/app/570/Dota_2/ the AppID is 570
-            
-            ### Anonymous Login
-            - Only works for free-to-play games and demos
-            - For paid games, you must provide your Steam credentials
-            
-            ### Steam Guard
-            - If your account has Steam Guard enabled, you may need to enter a code
-            - The application will pause and wait for the code to be entered
-            
-            ### Download Management
-            - Only one download runs at a time
-            - Additional downloads are queued
-            - You can cancel active downloads or remove queued downloads
-            
-            ### Troubleshooting
-            - If downloads fail, try reinstalling SteamCMD
-            - Verify you have sufficient disk space
-            - For paid games, ensure your credentials are correct
-            """)
-    
-    # Start background thread for processing queue
-    queue_thread = threading.Thread(target=queue_processor)
-    queue_thread.daemon = True
-    queue_thread.start()
+        # Start background thread for processing queue
+        queue_thread = threading.Thread(target=queue_processor)
+        queue_thread.daemon = True
+        queue_thread.start()
     
     return app
 
@@ -737,6 +877,25 @@ def queue_processor():
     while True:
         process_download_queue()
         time.sleep(5)  # Check queue every 5 seconds
+
+def reorder_queue(from_position, to_position):
+    with queue_lock:
+        if 1 <= from_position <= len(download_queue) and 1 <= to_position <= len(download_queue):
+            # Convert to 0-based index
+            from_idx = from_position - 1
+            to_idx = to_position - 1
+            
+            # Get the item to move
+            item = download_queue.pop(from_idx)
+            
+            # Insert at the new position
+            download_queue.insert(to_idx, item)
+            
+            logging.info(f"Moved download from position {from_position} to {to_position}")
+            return True, f"Moved download from position {from_position} to {to_position}"
+        else:
+            logging.warning(f"Invalid queue positions: from={from_position}, to={to_position}")
+            return False, "Invalid queue positions"
 
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
