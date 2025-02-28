@@ -45,6 +45,9 @@ STEAM_DOWNLOAD_PATH = os.environ.get('STEAM_DOWNLOAD_PATH')
 # Global variable to store the share URL
 SHARE_URL = ""
 
+# Define your FastAPI app here
+fastapi_app = FastAPI()
+
 def update_share_url(share_url):
     global SHARE_URL
     SHARE_URL = share_url
@@ -886,9 +889,12 @@ if __name__ == "__main__":
         show_error=True
     )
     
-    # Update and log the share URL
-    update_share_url(launch_info.share_url)
-    logging.info(f"Gradio share URL: {launch_info.share_url}")
+    # Check if launch_info has a share_url attribute
+    if hasattr(launch_info, 'share_url'):
+        update_share_url(launch_info.share_url)
+        logging.info(f"Gradio share URL: {launch_info.share_url}")
+    else:
+        logging.warning("Launch info does not contain a share URL.")
     
     # Keep the script running
     try:
