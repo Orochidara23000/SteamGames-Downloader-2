@@ -14,6 +14,7 @@ import sys
 from datetime import datetime, timedelta
 import shutil
 import psutil
+import uvicorn
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -850,26 +851,33 @@ def queue_processor():
         time.sleep(5)  # Check queue every 5 seconds
 
 if __name__ == "__main__":
-    app = create_gradio_interface()
+    if not check_steamcmd():
+        install_steamcmd()
     
-    # Get the port from environment or use default
-    port = int(os.environ.get("PORT", 7860))
+    app_interface = create_gradio_interface()
     
-    # Log the access URLs clearly
-    server_name = os.environ.get("SERVER_NAME", "0.0.0.0")
-    local_url = f"http://{server_name}:{port}/"
+    # Start the FastAPI server for file serving in a separate thread
+    threading.Thread(target=lambda: uvicorn.run(fastapi_app, host="0.0.0.0", port=8081), daemon=True).start()
     
-    logging.info("=" * 70)
-    logging.info(f"Launching Gradio app...")
-    logging.info(f"Local URL: {local_url}")
-    logging.info(f"To access from outside the container, use the mapped port")
-    logging.info("=" * 70)
+    port = int(os.getenv("PORT", 7861))
+    logging.info(f"Starting application on port {port}")
     
-    # Launch the app
-    app.launch(
-        server_name=server_name,  # Listen on all network interfaces
-        server_port=port,  # Use PORT env var or default to 7860
-        show_api=False,  # Disable API documentation page
-        share=os.environ.get("SHARE", "False").lower() == "true",  # Enable sharing only if explicitly requested
-        inbrowser=False  # Don't attempt to open in browser
+    # Launch Gradio and capture the return value
+    launch_info = app_interface.launch(
+        server_port=port, 
+        server_name="0.0.0.0", 
+        share=True, 
+        prevent_thread_lock=True,
+        show_error=True
     )
+    
+    # Update and log the share URL
+    update_share_url(launch_info.share_url)
+    logging.info(f"Gradio share URL: {launch_info.share_url}")
+    
+    # Keep the script running
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logging.info("Application stopped by user")
