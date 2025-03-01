@@ -430,9 +430,8 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             bufsize=1
         )
         
-        # Update status to "Downloading"
-        active_downloads[download_id]["status"] = "Downloading"
-        active_downloads[download_id]["process"] = process
+        # Log the initial state of active downloads
+        logging.info(f"Active downloads before starting: {active_downloads}")
         
         # Monitor the download process in a separate thread
         threading.Thread(
@@ -474,6 +473,9 @@ def monitor_download_process(download_id, process, validate_download):
                 process.terminate()
                 logging.info(f"Download {download_id} was cancelled, terminating process")
                 return
+            
+            # Log the output for debugging
+            logging.info(f"[{download_id}] Output: {line.strip()}")
             
             # Parse progress information
             progress_info = parse_progress(line)
@@ -532,13 +534,10 @@ def monitor_download_process(download_id, process, validate_download):
                 active_downloads[download_id]["status"] = "Failed: No Subscription"
                 process.terminate()
                 break
-                
-            # Log the output for debugging
-            logging.debug(f"[{download_id}] {line.strip()}")
         
         # Capture any error output
         for line in process.stderr:
-            logging.error(f"Error output: {line.strip()}")
+            logging.error(f"[{download_id}] Error output: {line.strip()}")
         
         # Wait for process to complete
         return_code = process.wait()
