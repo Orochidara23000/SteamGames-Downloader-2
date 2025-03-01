@@ -1,21 +1,12 @@
 FROM python:3.9-slim
 
-# Add i386 architecture support and install required system dependencies and locales
-RUN dpkg --add-architecture i386 && \
-    apt-get update && \
+# Install required system dependencies
+RUN apt-get update && \
     apt-get install -y \
-        lib32gcc-s1 \
-        lib32stdc++6 \
-        curl \
-        libcurl4 \
-        locales && \
-    locale-gen en_US.UTF-8 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set the locale environment variables
-ENV LANG=en_US.UTF-8 \
-    LANGUAGE=en_US:en \
-    LC_ALL=en_US.UTF-8
+    lib32gcc-s1 \
+    curl \
+    libcurl4 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
