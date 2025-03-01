@@ -1317,13 +1317,17 @@ def create_downloads_tab():
                     interactive=False,
                     wrap=True
                 )
+                
+                # Add refresh button for system stats
+                refresh_system_btn = gr.Button("Refresh Status")
         
         with gr.Row():
             with gr.Column():
                 gr.Markdown("### Download Queue")
                 queue_table = gr.Dataframe(
                     headers=["Position", "App ID", "Name", "Size", "Validate?"],
-                    interactive=False
+                    interactive=False,
+                    value=[]  # Initialize with empty list
                 )
                 
                 with gr.Row():
@@ -1362,7 +1366,8 @@ def create_downloads_tab():
                 gr.Markdown("### Download History")
                 history_table = gr.Dataframe(
                     headers=["ID", "Name", "Status", "Duration", "End Time"],
-                    interactive=False
+                    interactive=False,
+                    value=[]  # Initialize with empty list
                 )
         
         # Set up a log handler to capture logs for the UI
@@ -1403,46 +1408,53 @@ def create_downloads_tab():
                         with self.lock:
                             if self.buffer:
                                 log_text = "\n".join(self.buffer)
-                                self.log_box.update(value=log_text)
-                        
-                        # Update system stats
-                        stats = [
-                            ["CPU Usage", f"{psutil.cpu_percent()}%"],
-                            ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
-                            ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
-                            ["Active Downloads", str(len(active_downloads))],
-                            ["Queued Downloads", str(len(download_queue))]
-                        ]
-                        system_stats.update(value=stats)
-                        
-                        # Update queue table
-                        queue_data = []
-                        for i, download in enumerate(download_queue):
-                            appid = download["args"][4]
-                            queue_data.append([
-                                i + 1,  # Position
-                                appid,
-                                download.get("name", "Unknown Game"),
-                                "Unknown",  # Size
-                                "Yes" if download["args"][5] else "No"  # Validate
-                            ])
-                        queue_table.update(value=queue_data)
-                        
-                        # Update history table
-                        history_data = []
-                        for download in download_history[:10]:  # Show latest 10 entries
-                            history_data.append([
-                                download.get("id", "")[:8],  # Shorten ID
-                                download.get("name", "Unknown"),
-                                download.get("status", "Unknown"),
-                                download.get("duration", "Unknown"),
-                                download.get("end_time", datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-                            ])
-                        history_table.update(value=history_data)
+                                gr.update(value=log_text)(self.log_box)
                     except Exception as e:
-                        logger.error(f"Error updating UI: {str(e)}")
+                        logger.error(f"Error updating UI logs: {str(e)}")
                     
                     time.sleep(1)  # Update every second
+        
+        # Function to update system stats and tables manually
+        def update_system_stats():
+            stats = [
+                ["CPU Usage", f"{psutil.cpu_percent()}%"],
+                ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
+                ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
+                ["Active Downloads", str(len(active_downloads))],
+                ["Queued Downloads", str(len(download_queue))]
+            ]
+            
+            # Get queue data
+            queue_data = []
+            for i, download in enumerate(download_queue):
+                appid = download["args"][4]
+                queue_data.append([
+                    i + 1,  # Position
+                    appid,
+                    download.get("name", "Unknown Game"),
+                    "Unknown",  # Size
+                    "Yes" if download["args"][5] else "No"  # Validate
+                ])
+            
+            # Get history data
+            history_data = []
+            for download in download_history[:10]:  # Show latest 10 entries
+                history_data.append([
+                    download.get("id", "")[:8],  # Shorten ID
+                    download.get("name", "Unknown"),
+                    download.get("status", "Unknown"),
+                    download.get("duration", "Unknown"),
+                    download.get("end_time", datetime.now()).strftime("%Y-%m-%d %H:%M:%S") if isinstance(download.get("end_time"), datetime) else "Unknown"
+                ])
+            
+            return stats, queue_data, history_data
+        
+        # Connect refresh button
+        refresh_system_btn.click(
+            fn=update_system_stats,
+            inputs=None,
+            outputs=[system_stats, queue_table, history_table]
+        )
         
         # Create and add the UI log handler
         ui_log_handler = UILogHandler(download_logs)
@@ -1457,19 +1469,33 @@ def create_downloads_tab():
         
         # Connect remove from queue button
         remove_queue_btn.click(
-            fn=remove_from_queue,
+            fn=lambda pos: remove_from_queue(pos),
             inputs=[remove_position],
             outputs=[queue_action_result]
+        ).then(  # Use .then() to chain a refresh after the action
+            fn=update_system_stats,
+            inputs=None,
+            outputs=[system_stats, queue_table, history_table]
         )
         
-        # Connect move in queue button
+        # Connect move in queue button with refresh after
         move_queue_btn.click(
             fn=lambda from_pos, to_pos: reorder_queue(int(from_pos), int(to_pos))[1],
             inputs=[from_position, to_position],
             outputs=[queue_action_result]
+        ).then(  # Refresh after moving
+            fn=update_system_stats,
+            inputs=None,
+            outputs=[system_stats, queue_table, history_table]
         )
         
-    # No need to return refresh buttons anymore
+        # Initial update
+        initial_stats, initial_queue, initial_history = update_system_stats()
+        system_stats.update(value=initial_stats)
+        queue_table.update(value=initial_queue)
+        history_table.update(value=initial_history)
+        
+    # Return None since we don't have refresh buttons to return
     return None, None
 
 def create_gradio_interface():
