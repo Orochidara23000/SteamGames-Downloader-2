@@ -21,6 +21,7 @@ from typing import Dict, List, Any, Tuple, Optional
 from queue import Queue
 import signal
 import uuid
+import math
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -1652,6 +1653,146 @@ def queue_processor():
             logger.error(f"Error in queue processor: {str(e)}")
             # Continue the loop even if there's an error
             time.sleep(10)  # Wait a bit longer after an error
+
+def is_game_installed(appid):
+    """Check if a game is installed by looking for its directory"""
+    try:
+        appid = str(appid).strip()
+        game_dir = os.path.join(STEAMAPPS_PATH, "common")
+        
+        # Option 1: Check if appmanifest file exists
+        manifest_path = os.path.join(STEAMAPPS_PATH, f"appmanifest_{appid}.acf")
+        if os.path.exists(manifest_path):
+            return True
+            
+        # Option 2: Check if we can find it by name using game info
+        try:
+            game_info = get_game_info(appid)
+            game_name = game_info.get('name')
+            if game_name:
+                potential_game_path = os.path.join(game_dir, game_name)
+                if os.path.exists(potential_game_path):
+                    return True
+                
+                # Check for similar named folders
+                for folder in os.listdir(game_dir):
+                    if game_name.lower() in folder.lower():
+                        return True
+        except Exception as e:
+            logger.warning(f"Error checking game by name: {e}")
+            
+        return False
+    except Exception as e:
+        logger.error(f"Error in is_game_installed: {e}")
+        return False
+
+def get_game_size(appid):
+    """Get the size of an installed game in bytes"""
+    try:
+        appid = str(appid).strip()
+        game_dir = os.path.join(STEAMAPPS_PATH, "common")
+        
+        # Try to find the game directory
+        try:
+            game_info = get_game_info(appid)
+            game_name = game_info.get('name')
+            if game_name:
+                # Check exact match
+                potential_game_path = os.path.join(game_dir, game_name)
+                if os.path.exists(potential_game_path):
+                    return get_directory_size(potential_game_path)
+                
+                # Check for similar named folders
+                for folder in os.listdir(game_dir):
+                    if game_name.lower() in folder.lower():
+                        folder_path = os.path.join(game_dir, folder)
+                        return get_directory_size(folder_path)
+        except Exception as e:
+            logger.warning(f"Error finding game directory: {e}")
+            
+        return 0
+    except Exception as e:
+        logger.error(f"Error in get_game_size: {e}")
+        return 0
+
+def get_directory_size(path):
+    """Calculate the total size of a directory in bytes"""
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            file_path = os.path.join(dirpath, filename)
+            if os.path.exists(file_path):
+                total_size += os.path.getsize(file_path)
+    return total_size
+
+def format_size(size_bytes):
+    """Format size in bytes to a human-readable string"""
+    if size_bytes == 0:
+        return "0B"
+    size_names = ("B", "KB", "MB", "GB", "TB")
+    i = int(math.log(size_bytes, 1024))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_names[i]}"
+
+def get_game_info(appid):
+    """Get information about a game from the Steam API or cache"""
+    try:
+        appid = str(appid).strip()
+        
+        # Check if we have cached info
+        cache_file = os.path.join(CACHE_DIR, f"game_{appid}.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to load cached game info: {e}")
+        
+        # Get from Steam API
+        steam_api_url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
+        try:
+            response = requests.get(steam_api_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data and data.get(appid, {}).get('success', False):
+                    game_data = data[appid]['data']
+                    
+                    # Save to cache
+                    os.makedirs(CACHE_DIR, exist_ok=True)
+                    with open(cache_file, 'w') as f:
+                        json.dump(game_data, f)
+                    
+                    return game_data
+        except Exception as e:
+            logger.warning(f"Error fetching game info from Steam API: {e}")
+        
+        # Fallback: return minimal info
+        return {"name": f"App {appid}", "appid": appid}
+    except Exception as e:
+        logger.error(f"Error in get_game_info: {e}")
+        return {"name": f"App {appid}", "appid": appid}
+
+# Make sure you have CACHE_DIR and STEAMAPPS_PATH defined
+if not 'CACHE_DIR' in globals():
+    CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+if not 'STEAMAPPS_PATH' in globals():
+    # This should be set to your actual SteamApps path
+    STEAMAPPS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steamapps")
+    if not os.path.exists(STEAMAPPS_PATH):
+        # Try default paths
+        possible_paths = [
+            "/steamapps",
+            "/Steam/steamapps", 
+            "/home/steam/Steam/steamapps",
+            "/app/steamapps"
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                STEAMAPPS_PATH = path
+                break
 
 if __name__ == "__main__":
     # Ensure necessary directories exist
