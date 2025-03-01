@@ -91,6 +91,11 @@ def check_steamcmd():
 
 def install_steamcmd():
     logging.info("Installing SteamCMD for Linux")
+    
+    # Check and install necessary dependencies
+    logging.info("Checking for required dependencies...")
+    os.system("apt-get update && apt-get install -y lib32gcc1")  # Install dependency
+
     steamcmd_install_dir = "/app/steamcmd"
     steamcmd_path = os.path.join(steamcmd_install_dir, "steamcmd.sh")
     
@@ -121,6 +126,13 @@ def install_steamcmd():
     # Run SteamCMD for the first time to complete installation
     logging.info("Running SteamCMD for the first time to complete installation")
     os.system(steamcmd_path + " +quit")
+    
+    # Validate SteamCMD installation
+    validation_output = os.popen(f"{steamcmd_path} +quit").read()
+    if "Success" not in validation_output:
+        logging.error("SteamCMD validation failed")
+        return "Installation failed - validation error", ""
+    
     logging.info("SteamCMD initial run completed successfully")
     
     # Return two outputs: a success message and the path to steamcmd.sh
@@ -1161,15 +1173,18 @@ def cleanup_failed_downloads():
         time.sleep(60)
 
 if __name__ == "__main__":
+    # Attempt to set the locale
+    import locale
+    try:
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except locale.Error as e:
+        logging.warning(f"Locale error: {str(e)}. Proceeding with default locale.")
+        # Set fallback locale configuration
+        os.environ['LC_ALL'] = 'C.UTF-8'
+
     # Ensure SteamCMD is installed
     if not check_steamcmd():
         install_steamcmd()
-    
-    # Set locale to UTF-8
-    try:
-        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-    except locale.Error:
-        logging.warning("Failed to set locale to 'en_US.UTF-8', using default locale.")
     
     # Create the Gradio interface directly
     app_interface = create_gradio_interface()
