@@ -502,26 +502,30 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     game_name = game_info.get('name', f"Game {appid}")
     is_free = game_info.get('is_free', False)
     
-    # Define special case free-to-play games that need credentials
+    # Define special case free-to-play games that need special handling
     special_f2p_games = {
         "230410": {  # Warframe
             "name": "Warframe",
-            "requires_account": True  # Requires Steam account despite being free
+            "requires_account": True,  # Requires Steam account despite being free
+            "platform": "windows"      # Requires Windows platform
         },
         "570": {  # Dota 2
             "name": "Dota 2",
-            "requires_account": True  
+            "requires_account": True,
+            "platform": "windows"
         },
         "440": {  # Team Fortress 2
             "name": "Team Fortress 2",
-            "requires_account": True
+            "requires_account": True,
+            "platform": "windows"
         }
         # Add more special cases as needed
     }
     
     # Check if this is a special case game that requires credentials
     is_special_game = appid in special_f2p_games
-    requires_account = is_special_game and special_f2p_games[appid]["requires_account"]
+    requires_account = is_special_game and special_f2p_games[appid].get("requires_account", False)
+    specific_platform = is_special_game and special_f2p_games[appid].get("platform", None)
     
     # For special games requiring an account, override the anonymous setting
     if requires_account:
@@ -548,6 +552,12 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     # Prepare SteamCMD command
     cmd_args = [get_steamcmd_path()]
     
+    # Force Windows platform if needed
+    if specific_platform:
+        logger.info(f"Forcing platform to {specific_platform} for {game_name}")
+        cmd_args.append(f"+@sSteamCmdForcePlatformType {specific_platform}")
+    
+    # Add login parameters
     if anonymous:
         cmd_args.extend(["+login", "anonymous"])
     else:
