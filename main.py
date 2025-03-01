@@ -18,8 +18,6 @@ import uvicorn
 from fastapi import FastAPI
 import asyncio
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)  # Set to DEBUG for more detailed logs
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -349,15 +347,12 @@ def verify_installation(appid, install_path):
 
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
     try:
-        # Check if game_input is valid
+        # Your logic to start the download
         if not game_input:
             return "Please enter a valid game ID or URL."
         
-        # Simulate the download process (replace with actual download logic)
+        # Simulate download process
         download_id = "12345"  # Example download ID
-        logging.info(f"Starting download for game ID: {download_id}")
-        
-        # Return a success message
         return f"Download started for game ID: {download_id}."
     
     except Exception as e:
@@ -889,7 +884,6 @@ def create_downloads_tab():
         # Function to update download status in the UI
         def update_downloads_status():
             try:
-                # Fetch the latest download status
                 status = get_download_status()
                 
                 # Format active downloads for table display
@@ -926,13 +920,17 @@ def create_downloads_tab():
                     ["System Uptime", status['system']['uptime']]
                 ]
                 
-                # Return the data as outputs for the three tables/components
-                return active_data, queue_data, system_data
-            
+                # Update the tables with new data
+                active_downloads_table.value = active_data
+                queue_table.value = queue_data
+                system_stats.value = system_data
+                
             except Exception as e:
                 logging.error(f"Error updating download status: {str(e)}")
-                # Return empty lists for all outputs if there's an error
-                return [], [], []
+                # Optionally, you can reset the tables to empty or show an error message
+                active_downloads_table.value = []
+                queue_table.value = []
+                system_stats.value = []
         
         # Connect events for refreshing data
         refresh_btn.click(
