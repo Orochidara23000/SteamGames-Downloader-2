@@ -17,7 +17,12 @@ import psutil
 import uvicorn
 from fastapi import FastAPI
 import asyncio
+import locale
 
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except locale.Error:
+    logging.warning("Failed to set locale to 'en_US.UTF-8', using default locale.")
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -208,89 +213,19 @@ def validate_appid(appid):
         logging.error(f"Validation error for App ID {appid}: {str(e)}")
         return False, f"Validation error: {str(e)}"
 
-def parse_progress(line):
-    try:
-        # Improved progress parsing with more information
-        line_lower = line.lower()
-        
-        # Look for progress percentage patterns
-        progress_patterns = [
-            r'(?:progress|update|download):\s*(?:.*?)(\d+\.\d+)%',  # Matches various progress formats
-            r'(\d+\.\d+)%\s*complete',
-            r'progress:\s+(\d+\.\d+)\s*%',
-            r'(\d+)\s+of\s+(\d+)\s+MB\s+\((\d+\.\d+)%\)'  # Matches current/total size
-        ]
-        
-        for pattern in progress_patterns:
-            progress_match = re.search(pattern, line_lower)
-            if progress_match:
-                if len(progress_match.groups()) == 3:  # Pattern with current/total size
-                    current = int(progress_match.group(1))
-                    total = int(progress_match.group(2))
-                    progress = float(progress_match.group(3))
-                    return {
-                        "progress": progress,
-                        "current_size": current,
-                        "total_size": total,
-                        "unit": "MB"
-                    }
-                else:
-                    progress = float(progress_match.group(1))
-                    return {"progress": progress}
-        
-        # Look for download speed
-        speed_patterns = [
-            r'(\d+\.?\d*)\s*(KB|MB|GB)/s',
-            r'at\s+(\d+\.?\d*)\s*(KB|MB|GB)/s'
-        ]
-        
-        for pattern in speed_patterns:
-            speed_match = re.search(pattern, line_lower)
-            if speed_match:
-                speed = float(speed_match.group(1))
-                unit = speed_match.group(2)
-                return {"speed": speed, "speed_unit": unit}
-        
-        # Look for ETA
-        eta_patterns = [
-            r'ETA\s+(\d+m\s*\d+s)',
-            r'ETA\s+(\d+:\d+:\d+)'
-        ]
-        
-        for pattern in eta_patterns:
-            eta_match = re.search(pattern, line_lower)
-            if eta_match:
-                return {"eta": eta_match.group(1)}
-        
-        # Look for total size in various formats
-        size_patterns = [
-            r'(?:size|total):\s*(\d+\.?\d*)\s*(\w+)',
-            r'downloading\s+(\d+\.?\d*)\s*(\w+)',
-            r'download of\s+(\d+\.?\d*)\s*(\w+)'
-        ]
-        
-        for pattern in size_patterns:
-            size_match = re.search(pattern, line_lower)
-            if size_match:
-                size = float(size_match.group(1))
-                unit = size_match.group(2)
-                return {"total_size": size, "unit": unit}
-        
-        # Check for success messages
-        success_patterns = [
-            r'success!\s+app\s+[\'"]?(\d+)[\'"]'
-        ]
-        
-        for pattern in success_patterns:
-            success_match = re.search(pattern, line_lower)
-            if success_match:
-                return {"success": True}
-        
-        return {}
+def parse_progress(line, download_id):
+    # Implement logic to parse the line and update progress, speed, etc.
+    # Example parsing logic:
+    line_lower = line.lower()
     
-    except Exception as e:
-        logging.error(f"Error parsing progress line: {line}. Error: {str(e)}")
-        return {}
+    # Look for progress percentage patterns
+    progress_match = re.search(r'(\d+\.\d+)%', line_lower)
+    if progress_match:
+        progress = float(progress_match.group(1))
+        # Update the active_downloads dictionary with the new progress
+        if download_id in active_downloads:
+            active_downloads[download_id]["progress"] = progress
+            logging.info(f"Download {download_id} progress updated to {progress:.1f}%")
 
 def process_download_queue():
     with queue_lock:
@@ -416,9 +351,8 @@ def handle_download(download_id, username, password, guard_code, anonymous, appi
         # Monitor the download process
         for line in process.stdout:
             logging.info(line.strip())
-            # Here you can parse the output to update progress, speed, etc.
-            # For example, you might want to call a function to parse progress
-            parse_progress(line.strip(), download_id)  # Implement this function to update active_downloads
+            # Call parse_progress with both the line and download_id
+            parse_progress(line.strip(), download_id)
 
         process.wait()  # Wait for the process to complete
         exit_code = process.returncode
