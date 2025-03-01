@@ -398,6 +398,9 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
             anonymous = True
             logging.info(f"Enforcing anonymous login for free game: {game_name}")
 
+        # Generate a unique download ID
+        download_id = f"dl_{int(time.time())}_{appid}"  # Create a unique download ID based on the current time and appid
+
         # Create directory if it doesn't exist
         download_dir = get_default_download_location()
         game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
