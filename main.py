@@ -1209,58 +1209,44 @@ def create_download_games_tab():
             outputs=[login_details]
         )
         
-        # Function to update UI when game is checked
-        def check_game(game_id):
-            details = get_game_details(game_id)
+        # Fix the check game button in create_library_tab
+        def check_game_status(appid):
+            """Check if a game is installed and return its status"""
+            if not appid:
+                return "Please enter a valid App ID"
             
-            if not details["success"]:
-                return (
-                    gr.update(visible=False),  # Hide game details row
-                    "",  # Game title
-                    "",  # Game description
-                    [],  # Game metadata
-                    None,  # Game image
-                    f"Error: {details['error']}"  # Download status
-                )
-            
-            game_info = details["game_info"]
-            
-            # Format metadata for display
-            metadata = [
-                ["App ID", details["appid"]],
-                ["Free Game", "Yes" if game_info.get("is_free", False) else "No"],
-                ["Release Date", game_info.get("release_date", "Unknown")],
-                ["Developer", ", ".join(game_info.get("developers", ["Unknown"]))],
-                ["Publisher", ", ".join(game_info.get("publishers", ["Unknown"]))],
-                ["Genres", ", ".join(game_info.get("genres", ["Unknown"]))],
-                ["Metacritic", game_info.get("metacritic", "N/A")],
-                ["Platforms", ", ".join([p for p, v in game_info.get("platforms", {}).items() if v])]
-            ]
-            
-            # Get image URL or use placeholder
-            image_url = game_info.get("header_image", None)
-            
-            # Auto-toggle anonymous login for free games
-            is_free = game_info.get("is_free", False)
-            if is_free:
-                toggle_message = "This is a free game - anonymous login will be used"
-            else:
-                toggle_message = "This is a paid game - you'll need to provide Steam credentials"
-            
-            return (
-                gr.update(visible=True),  # Show game details row
-                game_info.get("name", "Unknown Game"),  # Game title
-                game_info.get("description", "No description available"),  # Game description
-                metadata,  # Game metadata
-                image_url,  # Game image
-                f"Game found: {game_info.get('name', 'Unknown Game')} (AppID: {details['appid']}). {toggle_message}"  # Download status
-            )
+            try:
+                appid = str(appid).strip()
+                logger.info(f"Checking status for game with AppID: {appid}")
+                
+                # Check if the game is installed
+                installed = is_game_installed(appid)
+                logger.info(f"Game installation status: {installed}")
+                
+                # Get game info
+                game_info = get_game_info(appid)
+                game_name = game_info.get('name', 'Unknown')
+                logger.info(f"Game name: {game_name}")
+                
+                if installed:
+                    try:
+                        size = get_game_size(appid)
+                        size_str = format_size(size) if size > 0 else "Unknown size"
+                        return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
+                    except Exception as e:
+                        logger.error(f"Error getting game size: {e}")
+                        return f"Game '{game_name}' (AppID: {appid}) is installed, but couldn't determine size: {str(e)}"
+                else:
+                    return f"Game '{game_name}' (AppID: {appid}) is not installed."
+            except Exception as e:
+                logger.error(f"Error checking game status: {e}")
+                return f"Error checking game status: {str(e)}"
         
-        # Connect events
+        # Connect the check game button to its handler
         check_game_btn.click(
-            check_game,
+            fn=check_game_status,
             inputs=[game_input],
-            outputs=[game_details_row, game_title, game_description, game_metadata, game_image, download_status]
+            outputs=[game_title, game_description, game_metadata, game_image, download_status]
         )
         
         download_btn.click(
