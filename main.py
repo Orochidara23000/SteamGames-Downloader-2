@@ -318,7 +318,7 @@ def verify_installation(appid, install_path):
     
     try:
         logging.info(f"Running verification command: {' '.join(cmd_args)}")
-        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
         verification_successful = False
         output_lines = []
@@ -330,6 +330,9 @@ def verify_installation(appid, install_path):
             
             if f"Success! App '{appid}' fully installed" in line:
                 verification_successful = True
+        
+        for line in process.stderr:
+            logging.error(f"Error output: {line.strip()}")
         
         process.wait()
         
@@ -422,7 +425,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         process = subprocess.Popen(
             cmd_args, 
             stdout=subprocess.PIPE, 
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,  # Capture standard error
             text=True,
             bufsize=1
         )
@@ -532,6 +535,10 @@ def monitor_download_process(download_id, process, validate_download):
                 
             # Log the output for debugging
             logging.debug(f"[{download_id}] {line.strip()}")
+        
+        # Capture any error output
+        for line in process.stderr:
+            logging.error(f"Error output: {line.strip()}")
         
         # Wait for process to complete
         return_code = process.wait()
