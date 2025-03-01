@@ -18,6 +18,8 @@ import uvicorn
 from fastapi import FastAPI
 import asyncio
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)  # Set to DEBUG for more detailed logs
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -347,12 +349,15 @@ def verify_installation(appid, install_path):
 
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
     try:
-        # Your logic to start the download
+        # Check if game_input is valid
         if not game_input:
             return "Please enter a valid game ID or URL."
         
-        # Simulate download process
+        # Simulate the download process (replace with actual download logic)
         download_id = "12345"  # Example download ID
+        logging.info(f"Starting download for game ID: {download_id}")
+        
+        # Return a success message
         return f"Download started for game ID: {download_id}."
     
     except Exception as e:
