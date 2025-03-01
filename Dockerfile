@@ -6,9 +6,11 @@ RUN apt-get update && \
     lib32gcc-s1 \
     curl \
     libcurl4 \
-    musl-locales \
-    musl-locales-lang \
+    locales \
     && rm -rf /var/lib/apt/lists/*
+
+# Generate the locale
+RUN locale-gen en_US.UTF-8
 
 # Set working directory
 WORKDIR /app
