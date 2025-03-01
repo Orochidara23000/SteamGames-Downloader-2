@@ -23,6 +23,7 @@ import signal
 import uuid
 import math
 import concurrent.futures
+import socket
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -163,7 +164,7 @@ def install_steamcmd_linux():
         logger.info("Made steamcmd.sh executable")
         
         # Run SteamCMD for the first time to complete installation
-        logger.info("Running SteamCMD for the first time to complete installation")
+        logger.info("Running SteamCMD for the first time...")
         process = subprocess.run([steamcmd_path, "+quit"], 
                                check=True, 
                                stdout=subprocess.PIPE,
@@ -176,7 +177,7 @@ def install_steamcmd_linux():
         else:
             logger.error(f"SteamCMD initial run failed: {process.stderr}")
             return f"Error: SteamCMD installation failed. {process.stderr}", ""
-            
+        
     except requests.exceptions.RequestException as e:
         logger.error(f"Error downloading SteamCMD: {str(e)}")
         return f"Error: Failed to download SteamCMD. {str(e)}", ""
@@ -311,7 +312,7 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
             
             logger.info(f"Game found: {game_info['name']} (Free: {game_info['is_free']})")
             return True, game_info
-            
+        
         except requests.exceptions.Timeout:
             logger.error(f"Timeout while validating App ID {appid}")
             return False, "Timeout while connecting to Steam API. Please try again later."
@@ -327,7 +328,7 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
         except Exception as e:
             logger.error(f"Validation error for App ID {appid}: {str(e)}", exc_info=True)
             return False, f"Validation error: {str(e)}"
-    
+
     # First, try to check the cache - if we've already fetched this game info
     cache_file = os.path.join(CACHE_DIR, f"game_{appid}.json")
     if os.path.exists(cache_file):
@@ -1089,11 +1090,11 @@ def cancel_download(download_id):
                 
                 # Remove from active downloads
                 del active_downloads[download_id]
-            
-            # Process next download in queue
-            process_download_queue()
-            
-            return f"Download {download_id} cancelled successfully"
+                
+                # Process next download in queue
+                process_download_queue()
+                
+                return f"Download {download_id} cancelled successfully"
         except Exception as e:
             logger.error(f"Error cancelling download {download_id}: {str(e)}")
             return f"Error cancelling download: {str(e)}"
@@ -1105,7 +1106,7 @@ def remove_from_queue(position):
     try:
         position = int(position)
         logger.info(f"Attempting to remove download from queue position: {position}")
-        
+    
         with queue_lock:
             if 1 <= position <= len(download_queue):
                 removed = download_queue.pop(position - 1)
@@ -1273,7 +1274,7 @@ def create_download_games_tab():
                 return input_text.strip()
 
         def check_game_status(input_text):
-            """Check if a game is installed and return its status"""
+            """Check if a game is installed and return its status - no Steam API call"""
             if not input_text:
                 return "Please enter a valid App ID or game URL"
             
@@ -1282,43 +1283,20 @@ def create_download_games_tab():
                 appid = extract_appid_from_input(input_text)
                 logger.info(f"Extracted AppID: {appid} from input: {input_text}")
                 
-                # First, check with the validate_appid function which is more reliable
-                # This already has a timeout of 5 seconds in the requests.get() call
-                is_valid, game_info = validate_appid(appid)
-                
-                if not is_valid:
-                    logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
-                    return f"Error: {game_info}"
-                
-                # If we get here, game is valid
-                game_name = game_info.get('name', f"App {appid}")
-                is_free = game_info.get('is_free', False)
-                description = game_info.get('description', 'No description available')
-                
-                # Check if game is installed - with a simple try/except
-                installed = False
-                try:
-                    installed = is_game_installed(appid)
-                except Exception as e:
-                    logger.warning(f"Error checking if game is installed: {e}")
-                    # Continue anyway
-                
-                # Format a more complete response
-                result = f"### Game: {game_name}\n"
+                # Instead of calling the API, we'll just return basic information
+                # This avoids any API calls that might hang
+                result = f"### Game with AppID: {appid}\n"
                 result += f"AppID: {appid}\n"
-                result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
-                result += f"Installed: {'Yes' if installed else 'No'}\n"
-                result += f"\nDescription: {description}"
+                result += f"Info: Unable to retrieve game details from Steam API.\n"
+                result += f"Note: Game info retrieval has been disabled to avoid hanging issues.\n"
+                result += f"\nTo download this game, use the Download button below."
                 
-                logger.info(f"Successfully retrieved info for game: {game_name}")
+                logger.info(f"Returning basic info for AppID: {appid} without API call")
                 return result
             
-            except requests.exceptions.Timeout:
-                logger.error(f"Timeout while checking game status for: {input_text}")
-                return "Error: Request timed out while checking game status. Steam API may be unavailable."
             except Exception as e:
-                logger.error(f"Error checking game status: {e}", exc_info=True)
-                return f"Error checking game status: {str(e)}"
+                logger.error(f"Error in check_game_status: {e}", exc_info=True)
+                return f"Error checking game: {str(e)}"
         
         # IMPORTANT: Find ALL instances where check_game_btn.click is defined
         # and make sure they're consistent
@@ -1710,11 +1688,11 @@ def create_gradio_interface():
                 - For paid games, ensure your credentials are correct
                 - Look for detailed error messages in the Downloads tab
                 """)
-    
-    # Start background thread for processing queue
-    queue_thread = threading.Thread(target=queue_processor)
-    queue_thread.daemon = True
-    queue_thread.start()
+        
+        # Start background thread for processing queue
+        queue_thread = threading.Thread(target=queue_processor)
+        queue_thread.daemon = True
+        queue_thread.start()
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(sig, frame):
@@ -1917,6 +1895,43 @@ if not 'STEAMAPPS_PATH' in globals():
             if os.path.exists(path):
                 STEAMAPPS_PATH = path
                 break
+
+def run_network_diagnostics():
+    """Run network diagnostics to help identify connectivity issues"""
+    logger.info("Running network diagnostics...")
+    
+    # Test basic internet connectivity
+    try:
+        response = requests.get("https://www.google.com", timeout=3)
+        logger.info(f"Internet connectivity (Google): Success ({response.status_code})")
+    except Exception as e:
+        logger.error(f"Internet connectivity (Google): Failed - {str(e)}")
+    
+    # Test Steam website connectivity
+    try:
+        response = requests.get("https://store.steampowered.com", timeout=3)
+        logger.info(f"Steam website connectivity: Success ({response.status_code})")
+    except Exception as e:
+        logger.error(f"Steam website connectivity: Failed - {str(e)}")
+    
+    # Test Steam API connectivity with a simple query
+    try:
+        response = requests.get("https://api.steampowered.com/ISteamWebAPIUtil/GetSupportedAPIList/v1/", timeout=3)
+        logger.info(f"Steam API connectivity: Success ({response.status_code})")
+    except Exception as e:
+        logger.error(f"Steam API connectivity: Failed - {str(e)}")
+    
+    # DNS resolution test
+    try:
+        ip = socket.gethostbyname("store.steampowered.com")
+        logger.info(f"DNS resolution for Steam: Success ({ip})")
+    except Exception as e:
+        logger.error(f"DNS resolution for Steam: Failed - {str(e)}")
+
+# Call this on startup
+if __name__ == "__main__":
+    run_network_diagnostics()
+    # ... rest of your startup code
 
 if __name__ == "__main__":
     # Ensure necessary directories exist
