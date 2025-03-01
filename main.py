@@ -122,6 +122,16 @@ def install_steamcmd():
     os.system(steamcmd_path + " +quit")
     logging.info("SteamCMD initial run completed successfully")
     
+    # Create license directory and dummy license file
+    license_dir = "/steamcmd/appcache"
+    os.makedirs(license_dir, exist_ok=True)
+    
+    # Create dummy license file
+    with open(os.path.join(license_dir, "appinfo.vdf"), "w") as f:
+        f.write('"apps"\n{\n\t"0"\n\t{\n\t\t"appid"\t\t"0"\n\t}\n}')
+    
+    logging.info("Created base license file")
+
     # Return two outputs: a success message and the path to steamcmd.sh
     return "SteamCMD installed successfully.", steamcmd_path
 
@@ -393,44 +403,42 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
         game_name = game_info.get('name', f'App_{appid}')  # Ensure name exists
         is_free = game_info.get('is_free', False)
 
-        # Force anonymous for free games regardless of user choice
-        if is_free:
-            anonymous = True
-            logging.info(f"Enforcing anonymous login for free game: {game_name}")
-
-        # Generate a unique download ID
-        download_id = f"dl_{int(time.time())}_{appid}"  # Create a unique download ID based on the current time and appid
-
         # Create directory if it doesn't exist
         download_dir = get_default_download_location()
         game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
         os.makedirs(game_dir, exist_ok=True)
-        
-        # Prepare SteamCMD command
-        cmd_args = [get_steamcmd_path()]
-        cmd_args.extend(["+force_install_dir", game_dir])  # Ensure this is before login
-        
-        if anonymous:
-            cmd_args += [
-                "+login", "anonymous",
-                "+@sSteamCmdForcePlatformType", "windows",  # Required for some games
-                "+app_license_request", appid  # Critical for free games
-            ]
-        else:
-            cmd_args.extend(["+login", username, password])
-            if guard_code:
-                # Handle Steam Guard code if provided
-                cmd_args[-1] = f"{password} {guard_code}"
 
-        cmd_args.extend([
-            "+app_update", appid
-        ])
-        
-        if validate_download:
-            cmd_args.append("validate")
-        
-        cmd_args.append("+quit")
-        
+        # Special handling for free games
+        if is_free:
+            cmd_args = [
+                get_steamcmd_path(),
+                "+force_install_dir", game_dir,
+                "+login", "anonymous",
+                "+@sSteamCmdForcePlatformType", "windows",  # Must come BEFORE license request
+                "+app_license_request", appid,  # Must come BEFORE app_update
+                "+app_update", appid,
+                "+quit"
+            ]
+            if validate_download:
+                cmd_args.insert(-1, "validate")  # Insert validate before the last quit
+        else:
+            # Handle paid games (existing logic)
+            cmd_args = [
+                get_steamcmd_path(),
+                "+force_install_dir", game_dir,
+                "+login", username, password,
+                "+app_update", appid,
+                "+quit",
+            ]
+            if guard_code:
+                cmd_args[-2] = f"{password} {guard_code}"  # Handle Steam Guard code
+
+            if validate_download:
+                cmd_args.insert(-1, "validate")  # Insert validate before the last quit
+
+        # Remove empty arguments
+        cmd_args = [arg for arg in cmd_args if arg]
+
         # Start the process
         process = subprocess.Popen(
             cmd_args, 
@@ -439,7 +447,10 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
             text=True,
             bufsize=1
         )
-        
+
+        # Generate a unique download ID
+        download_id = f"dl_{int(time.time())}_{appid}"
+
         # Add to active downloads
         active_downloads[download_id] = {
             "appid": appid,
@@ -455,19 +466,19 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
             "process": process,  # Store process reference
             "pid": process.pid  # Store PID for later cleanup
         }
-        
+
         logging.info(f"Starting download for {game_name} (AppID: {appid}) with ID: {download_id}")
         logging.debug(f"Command: {' '.join(cmd_args)}")
-        
+
         # Monitor the download process in a separate thread
         threading.Thread(
             target=monitor_download_process,
             args=(download_id, process, validate_download),
             daemon=True
         ).start()
-        
+
         return f"Started download for {game_name} (AppID: {appid}) with ID: {download_id}"
-    
+
     except Exception as e:
         logging.error(f"Error starting download: {str(e)}", exc_info=True)
         return f"Error starting download: {str(e)}"
