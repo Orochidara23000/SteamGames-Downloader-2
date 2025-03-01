@@ -108,7 +108,7 @@ def install_steamcmd():
     
     with open(tarball_path, "wb") as f:
         f.write(response.content)
-            
+    
     logging.info("Extracting SteamCMD tar.gz file")
     with tarfile.open(tarball_path, "r:gz") as tar:
         tar.extractall(path=steamcmd_install_dir)
@@ -322,14 +322,14 @@ def verify_installation(appid, install_path):
         
         verification_successful = False
         output_lines = []
-    
+        
         for line in process.stdout:
             line = line.strip()
             output_lines.append(line)
             logging.debug(f"Verification output: {line}")
             
-        if f"Success! App '{appid}' fully installed" in line:
-            verification_successful = True
+            if f"Success! App '{appid}' fully installed" in line:
+                verification_successful = True
         
         process.wait()
         
@@ -346,23 +346,230 @@ def verify_installation(appid, install_path):
         return False
 
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
+    """
+    Handles the actual download of a Steam game.
+    
+    Args:
+        username (str): Steam username
+        password (str): Steam password
+        guard_code (str): Steam Guard code (if applicable)
+        anonymous (bool): Whether to use anonymous login
+        game_input (str): Game ID or URL
+        validate_download (bool): Whether to validate files after download
+        
+    Returns:
+        str: Status message
+    """
     try:
-        if not game_input:
+        appid = parse_game_input(game_input)
+        if not appid:
             return "Please enter a valid game ID or URL."
         
-        # Simulate download process
-        download_id = "12345"  # Example download ID
-        logging.info(f"Starting download for game ID: {download_id}")
+        # Generate a unique download ID
+        download_id = f"dl_{int(time.time())}_{appid}"
         
-        # Return a success message
-        return f"Download started for game ID: {download_id}."
+        # Get game info for better logging
+        is_valid, game_info = validate_appid(appid)
+        if not is_valid:
+            return f"Invalid game: {game_info}"
+        
+        game_name = game_info.get('name', f'Unknown Game ({appid})')
+        
+        # Create directory if it doesn't exist
+        download_dir = get_default_download_location()
+        game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
+        os.makedirs(game_dir, exist_ok=True)
+        
+        # Prepare SteamCMD command
+        cmd_args = [get_steamcmd_path()]
+        
+        if anonymous:
+            cmd_args.extend(["+login", "anonymous"])
+        else:
+            cmd_args.extend(["+login", username, password])
+            if guard_code:
+                # Handle Steam Guard code if provided
+                cmd_args[-1] = f"{password} {guard_code}"
+        
+        cmd_args.extend([
+            "+force_install_dir", game_dir,
+            "+app_update", appid
+        ])
+        
+        if validate_download:
+            cmd_args.append("validate")
+        
+        cmd_args.append("+quit")
+        
+        # Add to active downloads
+        active_downloads[download_id] = {
+            "appid": appid,
+            "name": game_name,
+            "progress": 0.0,
+            "status": "Starting",
+            "start_time": datetime.now(),
+            "eta": "Calculating...",
+            "speed": "0 KB/s",
+            "size_downloaded": "0 MB",
+            "total_size": "Unknown",
+            "cmd": cmd_args
+        }
+        
+        logging.info(f"Starting download for {game_name} (AppID: {appid}) with ID: {download_id}")
+        logging.debug(f"Command: {' '.join(cmd_args)}")
+        
+        # Start the process
+        process = subprocess.Popen(
+            cmd_args, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        # Update status to "Downloading"
+        active_downloads[download_id]["status"] = "Downloading"
+        active_downloads[download_id]["process"] = process
+        
+        # Monitor the download process in a separate thread
+        threading.Thread(
+            target=monitor_download_process,
+            args=(download_id, process, validate_download),
+            daemon=True
+        ).start()
+        
+        return f"Started download for {game_name} (AppID: {appid}) with ID: {download_id}"
     
     except Exception as e:
-        logging.error(f"Error during download: {str(e)}")
-        return f"Error: {str(e)}"
+        logging.error(f"Error starting download: {str(e)}", exc_info=True)
+        return f"Error starting download: {str(e)}"
+
+# Add this new function to monitor the download process
+def monitor_download_process(download_id, process, validate_download):
+    """
+    Monitors the download process and updates progress and status.
+    
+    Args:
+        download_id (str): The unique download ID
+        process (subprocess.Popen): The SteamCMD process
+        validate_download (bool): Whether to validate files after download
+    """
+    appid = active_downloads[download_id]["appid"]
+    game_name = active_downloads[download_id]["name"]
+    download_dir = get_default_download_location()
+    game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
+    
+    try:
+        # Track last progress update to calculate download speed
+        last_progress = 0
+        last_update_time = time.time()
+        
+        # Process output line by line
+        for line in process.stdout:
+            if download_id not in active_downloads:
+                # Download was cancelled
+                process.terminate()
+                logging.info(f"Download {download_id} was cancelled, terminating process")
+                return
+            
+            # Parse progress information
+            progress_info = parse_progress(line)
+            
+            if progress_info:
+                # Update all available progress information
+                if "progress" in progress_info:
+                    progress = progress_info["progress"]
+                    active_downloads[download_id]["progress"] = progress
+                    
+                    # Calculate download speed
+                    current_time = time.time()
+                    time_diff = current_time - last_update_time
+                    if time_diff > 1:  # Only update speed every second
+                        progress_diff = progress - last_progress
+                        if progress_diff > 0:
+                            # Very rough estimation of speed based on progress percentage
+                            speed = progress_diff / time_diff  # % per second
+                            if "total_size" in active_downloads[download_id] and active_downloads[download_id]["total_size"] != "Unknown":
+                                try:
+                                    # Convert percentage speed to MB/s if we know total size
+                                    total_mb = float(active_downloads[download_id]["total_size"].split()[0])
+                                    speed_mb = (speed / 100) * total_mb
+                                    active_downloads[download_id]["speed"] = f"{speed_mb:.2f} MB/s"
+                                except:
+                                    active_downloads[download_id]["speed"] = f"{speed:.2f}%/s"
+                            else:
+                                active_downloads[download_id]["speed"] = f"{speed:.2f}%/s"
+                        
+                        last_progress = progress
+                        last_update_time = current_time
+                
+                if "speed" in progress_info and "speed_unit" in progress_info:
+                    active_downloads[download_id]["speed"] = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
+                
+                if "eta" in progress_info:
+                    active_downloads[download_id]["eta"] = progress_info["eta"]
+                
+                if "current_size" in progress_info and "total_size" in progress_info and "unit" in progress_info:
+                    active_downloads[download_id]["size_downloaded"] = f"{progress_info['current_size']} {progress_info['unit']}"
+                    active_downloads[download_id]["total_size"] = f"{progress_info['total_size']} {progress_info['unit']}"
+                
+                if "total_size" in progress_info and "unit" in progress_info:
+                    active_downloads[download_id]["total_size"] = f"{progress_info['total_size']} {progress_info['unit']}"
+                
+                if "success" in progress_info and progress_info["success"]:
+                    active_downloads[download_id]["status"] = "Finishing"
+            
+            # Check for common error messages
+            if "Invalid Password" in line:
+                active_downloads[download_id]["status"] = "Failed: Invalid Password"
+                process.terminate()
+                break
+            
+            if "No subscription" in line:
+                active_downloads[download_id]["status"] = "Failed: No Subscription"
+                process.terminate()
+                break
+                
+            # Log the output for debugging
+            logging.debug(f"[{download_id}] {line.strip()}")
+        
+        # Wait for process to complete
+        return_code = process.wait()
+        
+        if return_code == 0:
+            logging.info(f"Download completed for {game_name} (AppID: {appid})")
+            active_downloads[download_id]["status"] = "Completed"
+            active_downloads[download_id]["progress"] = 100.0
+            
+            # Validate if requested
+            if validate_download:
+                logging.info(f"Validating download for {game_name} (AppID: {appid})")
+                active_downloads[download_id]["status"] = "Validating"
+                is_valid = verify_installation(appid, game_dir)
+                if is_valid:
+                    active_downloads[download_id]["status"] = "Validated"
+                else:
+                    active_downloads[download_id]["status"] = "Validation Failed"
+        else:
+            logging.error(f"Download failed for {game_name} (AppID: {appid}) with return code {return_code}")
+            active_downloads[download_id]["status"] = f"Failed (code: {return_code})"
+    
+    except Exception as e:
+        logging.error(f"Error monitoring download {download_id}: {str(e)}", exc_info=True)
+        active_downloads[download_id]["status"] = f"Error: {str(e)}"
+    
+    finally:
+        # Update status to add to historical downloads (if implemented)
+        # Note: Implement a history tracking system if needed
+        
+        # Start next download in queue after a short delay
+        threading.Timer(2.0, process_download_queue).start()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
+    
+    # Make sure anonymous is properly handled as a boolean
+    anonymous = bool(anonymous)
     
     if not anonymous and (not username or not password):
         error_msg = "Error: Username and password are required for non-anonymous downloads."
@@ -382,9 +589,16 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logging.error(error_msg)
         return error_msg
     
+    # Check if this is a free game and enforce anonymous login requirements
+    is_free = game_info.get('is_free', False)
+    if not is_free and anonymous:
+        error_msg = f"This game ({game_info.get('name')}) is not free. You must log in with your Steam account to download it."
+        logging.error(error_msg)
+        return error_msg
+    
     # Check if we can start a new download immediately or need to queue
     with queue_lock:
-        if len(active_downloads) == 0:
+        if not active_downloads:  # No active downloads
             # Start download immediately
             thread = threading.Thread(
                 target=download_game,
@@ -625,10 +839,18 @@ def create_download_games_tab():
             outputs=[game_details_row, game_title, game_description, game_metadata, game_image, download_status]
         )
         
+        # Function to toggle login details visibility based on anonymous checkbox
+        def toggle_login_visibility(anonymous):
+            return gr.update(visible=not anonymous)
+        
+        # Connect anonymous checkbox to toggle login details visibility
+        anonymous.change(toggle_login_visibility, inputs=[anonymous], outputs=[login_details])
+        
+        # Connect the download button to queue_download instead of download_game
         download_btn.click(
-            fn=download_game,  # Call the download_game function
+            fn=queue_download,
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
-            outputs=[download_status]  # Output to the download_status component
+            outputs=[download_status]
         )
         
         return game_input, check_game_btn, download_btn, download_status
@@ -1024,18 +1246,10 @@ def get_downloads_status():
         # Return empty data in case of error
         return [], [], []
 
-def check_and_install_steamcmd():
-    steamcmd_path = "/app/steamcmd/steamcmd.sh"
-    if not os.path.exists(steamcmd_path):
-        logging.info("SteamCMD is not installed. Installing...")
-        # Logic to download and install SteamCMD
-        install_steamcmd()  # Ensure this function is defined
-    else:
-        logging.info("SteamCMD is already installed.")
-
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
-    check_and_install_steamcmd()
+    if not check_steamcmd():
+        install_steamcmd()
     
     # Create the Gradio interface directly
     app_interface = create_gradio_interface()
