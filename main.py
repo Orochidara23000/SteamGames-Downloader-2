@@ -59,17 +59,8 @@ def update_share_url(share_url):
     logging.info(f"Gradio share URL updated: {share_url}")
 
 def get_default_download_location():
-    if STEAM_DOWNLOAD_PATH:
-        logging.info(f"Using environment variable for download path: {STEAM_DOWNLOAD_PATH}")
-        return STEAM_DOWNLOAD_PATH
-    if platform.system() == "Windows":
-        path = os.path.join(os.path.expanduser("~"), "SteamLibrary")
-    elif platform.system() == "Darwin":
-        path = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "SteamLibrary")
-    else:
-        path = os.path.join(os.path.expanduser("~"), "SteamLibrary")
-    logging.info(f"Using platform-specific download path: {path}")
-    return path
+    # Force container-friendly path
+    return os.environ.get('STEAM_DOWNLOAD_PATH', '/steam/downloads')
 
 def get_steamcmd_path():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -408,33 +399,21 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
         game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
         os.makedirs(game_dir, exist_ok=True)
 
-        # Special handling for free games
-        if is_free:
-            cmd_args = [
-                get_steamcmd_path(),
-                "+force_install_dir", game_dir,
-                "+login", "anonymous",
-                "+@sSteamCmdForcePlatformType", "windows",  # Must come BEFORE license request
-                "+app_license_request", appid,  # Must come BEFORE app_update
-                "+app_update", appid,
-                "+quit"
-            ]
-            if validate_download:
-                cmd_args.insert(-1, "validate")  # Insert validate before the last quit
-        else:
-            # Handle paid games (existing logic)
-            cmd_args = [
-                get_steamcmd_path(),
-                "+force_install_dir", game_dir,
-                "+login", username, password,
-                "+app_update", appid,
-                "+quit",
-            ]
-            if guard_code:
-                cmd_args[-2] = f"{password} {guard_code}"  # Handle Steam Guard code
-
-            if validate_download:
-                cmd_args.insert(-1, "validate")  # Insert validate before the last quit
+        # Command sequence with license retries and depot downloads
+        cmd_args = [
+            get_steamcmd_path(),
+            "+force_install_dir", game_dir,
+            "+@sSteamCmdForcePlatformType", "windows",
+            "+login", "anonymous",
+            "+app_license_request", appid,
+            "+app_license_request", appid,  # Second request
+            "+download_depot", "230410", "230411",  # Required Windows depot
+            "+download_depot", "230410", "230412",  # Required Linux depot
+            "+app_update", appid,
+            "-beta", "public",  # Required for Warframe
+            "validate",
+            "+quit"
+        ]
 
         # Remove empty arguments
         cmd_args = [arg for arg in cmd_args if arg]
@@ -1277,6 +1256,7 @@ def get_downloads_status():
              ["Queued Downloads", str(len(status["queue"]))],
              ["System Uptime", status['system']['uptime']]
             ]
+        ]
         
         return active_data, queue_data, system_data
     

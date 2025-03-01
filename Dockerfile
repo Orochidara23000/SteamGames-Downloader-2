@@ -6,6 +6,7 @@ RUN apt-get update && \
     lib32gcc-s1 \
     curl \
     libcurl4 \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -22,18 +23,15 @@ COPY . .
 RUN chmod +x entrypoint.sh
 
 # Create directories for volumes
-RUN mkdir -p /data/downloads /app/steamcmd /app/logs
+RUN mkdir -p /data/downloads /app/logs
 
-# Create appcache directory, add appinfo.vdf, and set permissions
-RUN mkdir -p /root/Steam/appcache && \
-    echo "326360" > /root/Steam/appcache/appinfo.vdf && \
-    chmod -R 777 /root/Steam
-
-# New commands to set up SteamCMD
-RUN mkdir -p /steamcmd && \
-    chown -R nobody:nogroup /steamcmd && \
-    ln -s /steamcmd /root/Steam && \
-    chmod -R 777 /steamcmd
+# Replace previous SteamCMD setup with new commands
+RUN mkdir -p /steam/downloads \
+    && chown -R 1000:1000 /steam \
+    && ln -s /steam /home/steamuser \
+    && wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz \
+    && tar -xvzf steamcmd_linux_old.tar.gz -C /steam \
+    && rm steamcmd_linux_old.tar.gz
 
 # Set environment variables
 ENV STEAM_DOWNLOAD_PATH=/data/downloads
