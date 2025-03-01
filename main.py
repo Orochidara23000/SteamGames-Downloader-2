@@ -386,6 +386,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         # Prepare SteamCMD command
         cmd_args = [get_steamcmd_path()]
         
+        cmd_args.extend(["+force_install_dir", game_dir])  # Ensure this is before login
         if anonymous:
             cmd_args.extend(["+login", "anonymous"])
         else:
@@ -395,7 +396,6 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                 cmd_args[-1] = f"{password} {guard_code}"
         
         cmd_args.extend([
-            "+force_install_dir", game_dir,
             "+app_update", appid
         ])
         
