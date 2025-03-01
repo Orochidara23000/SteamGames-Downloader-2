@@ -348,13 +348,10 @@ def verify_installation(appid, install_path):
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
     try:
         # Your logic to start the download
-        # For example, validate the game input, start the download process, etc.
-        
-        # Simulate download process
         if not game_input:
             return "Please enter a valid game ID or URL."
         
-        # Assume the download starts successfully
+        # Simulate download process
         download_id = "12345"  # Example download ID
         return f"Download started for game ID: {download_id}."
     
