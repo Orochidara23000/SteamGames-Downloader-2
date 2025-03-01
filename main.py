@@ -629,7 +629,9 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             "start_time": datetime.now(),
             "path": download_path,
             "anonymous": anonymous,
-            "command": cmd_str
+            "command": cmd_str,
+            "size_downloaded": "0 MB",
+            "total_size": "Unknown"
         }
     
     try:
@@ -711,16 +713,22 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                         # Update ETA if available
                         if "eta" in progress_info:
                             active_downloads[download_id]["eta"] = progress_info["eta"]
+                            logger.info(f"ETA: {progress_info['eta']}")
                         
                         # Update total size if available
                         if "total_size" in progress_info and "unit" in progress_info:
                             size_text = f"{progress_info['total_size']} {progress_info['unit']}"
                             active_downloads[download_id]["total_size"] = size_text
+                            logger.info(f"Total size: {size_text}")
                         
                         # Update current size if available
                         if "current_size" in progress_info and "unit" in progress_info:
                             current_text = f"{progress_info['current_size']} {progress_info['unit']}"
                             active_downloads[download_id]["size_downloaded"] = current_text
+                            logger.info(f"Downloaded: {current_text}")
+                        
+                        # Always update runtime (shown as "Time Running")
+                        active_downloads[download_id]["runtime"] = str(datetime.now() - active_downloads[download_id]["start_time"]).split('.')[0]
             
             # Check for success message in the entire output buffer
             if any(("Success!" in line or "fully installed" in line) for line in output_buffer[-20:]):
@@ -932,19 +940,25 @@ def get_download_status():
     """Get the current status of all downloads and queue for display in the UI."""
     # Get current downloads and queue
     active = []
-    for id, info in active_downloads.items():
-        active.append({
-            "id": id,
-            "name": info["name"],
-            "appid": info["appid"],
-            "progress": info["progress"],
-            "status": info["status"],
-            "eta": info.get("eta", "Unknown"),
-            "runtime": str(datetime.now() - info["start_time"]).split('.')[0],  # Remove microseconds
-            "speed": info.get("speed", "Unknown"),
-            "size_downloaded": info.get("size_downloaded", "Unknown"),
-            "total_size": info.get("total_size", "Unknown")
-        })
+    with queue_lock:
+        for id, info in active_downloads.items():
+            # Calculate runtime properly
+            start_time = info.get("start_time", datetime.now())
+            runtime = str(datetime.now() - start_time).split('.')[0]  # Remove microseconds
+            
+            # Ensure we have values for all fields
+            active.append({
+                "id": id,
+                "name": info.get("name", "Unknown"),
+                "appid": info.get("appid", "Unknown"),
+                "progress": info.get("progress", 0.0),
+                "status": info.get("status", "Unknown"),
+                "eta": info.get("eta", "Unknown"),
+                "runtime": runtime,
+                "speed": info.get("speed", "0 KB/s"),
+                "size_downloaded": info.get("size_downloaded", "Unknown"),
+                "total_size": info.get("total_size", "Unknown")
+            })
     
     # Enhanced queue information
     queue = []
@@ -1258,7 +1272,9 @@ def create_downloads_tab():
                 gr.Markdown("### Active Downloads")
                 active_downloads_table = gr.Dataframe(
                     headers=["ID", "Name", "Progress", "Status", "Speed", "ETA", "Time Running"],
-                    interactive=False
+                    interactive=False,
+                    row_count=5,  # Show more rows
+                    col_count=(7, "fixed")  # Fix column count to match headers
                 )
                 
                 with gr.Row():
@@ -1350,14 +1366,15 @@ def create_downloads_tab():
                     # Format progress with 1 decimal place
                     progress_display = f"{download['progress']:.1f}%" if isinstance(download['progress'], (int, float)) else download['progress']
                     
+                    # Ensure we have data for all columns
                     active_data.append([
-                        download["id"],
+                        download["id"][:8],  # Shorten UUID for display
                         download["name"],
                         progress_display,
                         download["status"],
-                        download["speed"],
-                        download["eta"],
-                        download["runtime"]
+                        str(download.get("speed", "Unknown")),  # Ensure string conversion
+                        str(download.get("eta", "Unknown")),
+                        str(download.get("runtime", "Unknown"))
                     ])
                 
                 # Format queue for table display
