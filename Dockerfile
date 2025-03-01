@@ -1,8 +1,7 @@
 FROM python:3.9-slim
 
 # Install required system dependencies and locales
-RUN dpkg --add-architecture i386 && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y \
     lib32gcc1 \
     lib32stdc++6 \
