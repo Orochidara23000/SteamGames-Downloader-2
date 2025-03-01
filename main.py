@@ -1247,14 +1247,37 @@ def create_download_games_tab():
                 appid = extract_appid_from_input(input_text)
                 logger.info(f"Extracted AppID: {appid} from input: {input_text}")
                 
-                # Get game info from Steam API
-                game_info = get_game_info(appid)
-                game_name = game_info.get('name', f"App {appid}")
+                # First, check with the validate_appid function which is more reliable
+                is_valid, game_info = validate_appid(appid)
                 
-                # Rest of your function code here
-                return f"Game info: {game_name} (AppID: {appid})"
+                if not is_valid:
+                    logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
+                    return f"Error: {game_info}"
+                
+                # If we get here, game is valid
+                game_name = game_info.get('name', f"App {appid}")
+                is_free = game_info.get('is_free', False)
+                description = game_info.get('description', 'No description available')
+                
+                # Check if game is installed
+                installed = False
+                try:
+                    installed = is_game_installed(appid)
+                except Exception as e:
+                    logger.warning(f"Error checking if game is installed: {e}")
+                    # Continue anyway
+                
+                # Format a more complete response
+                result = f"### Game: {game_name}\n"
+                result += f"AppID: {appid}\n"
+                result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
+                result += f"Installed: {'Yes' if installed else 'No'}\n"
+                result += f"\nDescription: {description}"
+                
+                logger.info(f"Successfully retrieved info for game: {game_name}")
+                return result
             except Exception as e:
-                logger.error(f"Error checking game status: {e}")
+                logger.error(f"Error checking game status: {e}", exc_info=True)
                 return f"Error checking game status: {str(e)}"
         
         # IMPORTANT: Find ALL instances where check_game_btn.click is defined
