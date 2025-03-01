@@ -1218,15 +1218,25 @@ def create_download_games_tab():
             
             try:
                 appid = str(appid).strip()
-                # Check if the game is installed
-                installed = is_game_installed(appid)
+                logger.info(f"Checking status for game with AppID: {appid}")
+                
+                # Get game info first (this should work even if not installed)
                 game_info = get_game_info(appid)
-                game_name = game_info.get('name', 'Unknown')
+                game_name = game_info.get('name', f"App {appid}")
+                logger.info(f"Game name from info: {game_name}")
+                
+                # Check if installed (this function now logs detailed info)
+                installed = is_game_installed(appid)
+                logger.info(f"Is game installed: {installed}")
                 
                 if installed:
-                    size = get_game_size(appid)
-                    size_str = format_size(size) if size > 0 else "Unknown size"
-                    return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
+                    try:
+                        size = get_game_size(appid)
+                        size_str = format_size(size) if size > 0 else "Unknown size"
+                        return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
+                    except Exception as e:
+                        logger.error(f"Error getting game size: {e}")
+                        return f"Game '{game_name}' (AppID: {appid}) is installed, but couldn't determine size."
                 else:
                     return f"Game '{game_name}' (AppID: {appid}) is not installed."
             except Exception as e:
@@ -1655,32 +1665,53 @@ def queue_processor():
             time.sleep(10)  # Wait a bit longer after an error
 
 def is_game_installed(appid):
-    """Check if a game is installed by looking for its directory"""
+    """Check if a game is installed by looking for its manifest file"""
     try:
         appid = str(appid).strip()
-        game_dir = os.path.join(STEAMAPPS_PATH, "common")
         
-        # Option 1: Check if appmanifest file exists
+        # First, make sure STEAMAPPS_PATH exists
+        if not os.path.exists(STEAMAPPS_PATH):
+            logger.warning(f"Steam apps directory does not exist: {STEAMAPPS_PATH}")
+            return False
+        
+        # Check if appmanifest file exists (this is the most reliable method)
         manifest_path = os.path.join(STEAMAPPS_PATH, f"appmanifest_{appid}.acf")
         if os.path.exists(manifest_path):
+            logger.info(f"Found manifest file for AppID {appid}: {manifest_path}")
             return True
-            
-        # Option 2: Check if we can find it by name using game info
+        
+        # Try to check for the common directory
+        common_dir = os.path.join(STEAMAPPS_PATH, "common")
+        if not os.path.exists(common_dir):
+            # Try alternate potential locations
+            logger.warning(f"Common games directory not found at {common_dir}")
+            common_dir = os.path.join(STEAMAPPS_PATH, "..", "common")
+            if not os.path.exists(common_dir):
+                logger.warning(f"Common games directory not found at alternate location either")
+                # If we can't find the common directory, we can't check by game name
+                return False
+        
+        # If we reach here, we have a valid common directory
+        logger.info(f"Using common directory: {common_dir}")
+        
+        # Try to check by game name
         try:
             game_info = get_game_info(appid)
             game_name = game_info.get('name')
-            if game_name:
-                potential_game_path = os.path.join(game_dir, game_name)
-                if os.path.exists(potential_game_path):
-                    return True
-                
-                # Check for similar named folders
-                for folder in os.listdir(game_dir):
-                    if game_name.lower() in folder.lower():
-                        return True
+            if game_name and os.path.exists(common_dir):
+                # List all directories and check for matches
+                for folder in os.listdir(common_dir):
+                    folder_path = os.path.join(common_dir, folder)
+                    if os.path.isdir(folder_path):
+                        # Check if game name is in folder name (case-insensitive)
+                        if game_name.lower() in folder.lower():
+                            logger.info(f"Found potential game directory for {game_name}: {folder_path}")
+                            return True
         except Exception as e:
             logger.warning(f"Error checking game by name: {e}")
-            
+        
+        # If we get here, we couldn't find the game
+        logger.info(f"Game with AppID {appid} does not appear to be installed")
         return False
     except Exception as e:
         logger.error(f"Error in is_game_installed: {e}")
@@ -1689,27 +1720,43 @@ def is_game_installed(appid):
 def get_game_size(appid):
     """Get the size of an installed game in bytes"""
     try:
-        appid = str(appid).strip()
-        game_dir = os.path.join(STEAMAPPS_PATH, "common")
+        # First check if the game is installed
+        if not is_game_installed(appid):
+            return 0
         
-        # Try to find the game directory
-        try:
-            game_info = get_game_info(appid)
-            game_name = game_info.get('name')
-            if game_name:
-                # Check exact match
-                potential_game_path = os.path.join(game_dir, game_name)
-                if os.path.exists(potential_game_path):
-                    return get_directory_size(potential_game_path)
-                
-                # Check for similar named folders
-                for folder in os.listdir(game_dir):
-                    if game_name.lower() in folder.lower():
-                        folder_path = os.path.join(game_dir, folder)
-                        return get_directory_size(folder_path)
-        except Exception as e:
-            logger.warning(f"Error finding game directory: {e}")
-            
+        # Try to get the size from the manifest file
+        manifest_path = os.path.join(STEAMAPPS_PATH, f"appmanifest_{appid}.acf")
+        if os.path.exists(manifest_path):
+            # Estimate size from manifest if possible
+            try:
+                with open(manifest_path, 'r') as f:
+                    content = f.read()
+                    # Try to extract size info from manifest
+                    size_match = re.search(r'"SizeOnDisk"\s+"(\d+)"', content)
+                    if size_match:
+                        return int(size_match.group(1))
+            except Exception as e:
+                logger.warning(f"Failed to read size from manifest: {e}")
+        
+        # If we reach here, try to find the game directory
+        common_dir = os.path.join(STEAMAPPS_PATH, "common")
+        if not os.path.exists(common_dir):
+            common_dir = os.path.join(STEAMAPPS_PATH, "..", "common")
+            if not os.path.exists(common_dir):
+                logger.warning("Cannot find games directory to calculate size")
+                return 0
+        
+        # Try to find by name
+        game_info = get_game_info(appid)
+        game_name = game_info.get('name', '')
+        
+        if game_name:
+            # Check for directory with matching name
+            for folder in os.listdir(common_dir):
+                folder_path = os.path.join(common_dir, folder)
+                if os.path.isdir(folder_path) and game_name.lower() in folder.lower():
+                    return get_directory_size(folder_path)
+        
         return 0
     except Exception as e:
         logger.error(f"Error in get_game_size: {e}")
