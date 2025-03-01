@@ -1209,13 +1209,11 @@ def create_download_games_tab():
             outputs=[login_details]
         )
         
-        # Fix the check game button in create_library_tab
+        # Define the check game status function to return only what's needed
         def check_game_status(appid):
             """Check if a game is installed and return its status"""
             if not appid:
-                result = "Please enter a valid App ID"
-                # Return placeholder values for all 5 outputs
-                return result, None, None, None, None
+                return "Please enter a valid App ID"
             
             try:
                 appid = str(appid).strip()
@@ -1227,23 +1225,21 @@ def create_download_games_tab():
                 if installed:
                     size = get_game_size(appid)
                     size_str = format_size(size) if size > 0 else "Unknown size"
-                    result = f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
+                    return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
                 else:
-                    result = f"Game '{game_name}' (AppID: {appid}) is not installed."
-                
-                # Return the result and placeholders for the other 4 outputs
-                return result, None, None, None, None
+                    return f"Game '{game_name}' (AppID: {appid}) is not installed."
             except Exception as e:
                 logger.error(f"Error checking game status: {e}")
-                result = f"Error checking game status: {str(e)}"
-                # Return the error and placeholders for the other 4 outputs
-                return result, None, None, None, None
+                return f"Error checking game status: {str(e)}"
         
-        # Connect the check game button - make sure outputs match what's expected
+        # IMPORTANT: Find ALL instances where check_game_btn.click is defined
+        # and make sure they're consistent
+        
+        # This is what it should be - connecting to only one output
         check_game_btn.click(
             fn=check_game_status,
             inputs=[game_input],
-            outputs=[download_status]  # Only include the one output we're returning
+            outputs=[download_status]
         )
         
         download_btn.click(
