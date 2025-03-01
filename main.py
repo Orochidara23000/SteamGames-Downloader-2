@@ -502,45 +502,48 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     game_name = game_info.get('name', f"Game {appid}")
     is_free = game_info.get('is_free', False)
     
-    # Check login requirements
-    if not anonymous and not is_free:
-        if not username or not password:
-            logger.error(f"Username and password required for non-free game: {game_name}")
-            return "Error: Username and password are required for non-free games."
+    # Define special case free-to-play games that need credentials
+    special_f2p_games = {
+        "230410": {  # Warframe
+            "name": "Warframe",
+            "requires_account": True  # Requires Steam account despite being free
+        },
+        "570": {  # Dota 2
+            "name": "Dota 2",
+            "requires_account": True  
+        },
+        "440": {  # Team Fortress 2
+            "name": "Team Fortress 2",
+            "requires_account": True
+        }
+        # Add more special cases as needed
+    }
     
-    # Use anonymous login for free games regardless of user choice
-    if is_free:
+    # Check if this is a special case game that requires credentials
+    is_special_game = appid in special_f2p_games
+    requires_account = is_special_game and special_f2p_games[appid]["requires_account"]
+    
+    # For special games requiring an account, override the anonymous setting
+    if requires_account:
+        if not username or not password:
+            logger.error(f"Username and password required for {game_name} despite being free-to-play")
+            return "Error: This free game requires a Steam account. Please provide your Steam credentials."
+        anonymous = False
+        logger.info(f"Using account login for special free-to-play game: {game_name}")
+    # For normal free games, use anonymous login
+    elif is_free:
         anonymous = True
-        logger.info(f"Using anonymous login for free game: {game_name}")
+        logger.info(f"Using anonymous login for standard free game: {game_name}")
+    # For paid games, ensure we have credentials
+    elif not anonymous and (not username or not password):
+        logger.error(f"Username and password required for non-free game: {game_name}")
+        return "Error: Username and password are required for non-free games."
     
     # Set up download directory
     download_path = os.path.join(get_default_download_location(), game_name.replace(" ", "_"))
     ensure_directory_exists(download_path)
     
     logger.info(f"Download path: {download_path}")
-    
-    # Check for special case free-to-play games that need additional parameters
-    special_f2p_games = {
-        "230410": {  # Warframe
-            "name": "Warframe",
-            "app_id": "230410",
-            "depot_id": "230411",  # This is the actual content depot
-            "needs_license": True
-        },
-        "570": {  # Dota 2
-            "name": "Dota 2",
-            "app_id": "570",
-            "depot_id": "571",
-            "needs_license": True
-        },
-        "440": {  # Team Fortress 2
-            "name": "Team Fortress 2",
-            "app_id": "440",
-            "depot_id": "441",
-            "needs_license": True
-        }
-        # Add more special cases as needed
-    }
     
     # Prepare SteamCMD command
     cmd_args = [get_steamcmd_path()]
@@ -553,35 +556,26 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             # Steam Guard code needs special handling in the command
             cmd_args[-1] = f"{password} {guard_code}"
     
-    # Check if we need special handling for this game
-    if appid in special_f2p_games:
-        logger.info(f"Using special handling for free-to-play game: {game_name}")
-        special_game = special_f2p_games[appid]
-        
-        # For games requiring a license but downloadable with anonymous access
-        if special_game["needs_license"] and anonymous:
-            # Use the app_update command with special parameters
-            cmd_args.extend([
-                "+force_install_dir", download_path,
-                "+app_update", special_game["app_id"], 
-                "+app_license_request", special_game["app_id"],
-                "+app_update", special_game["app_id"], "validate",
-                "+quit"
-            ])
-        else:
-            # Regular update for special games
-            cmd_args.extend([
-                "+force_install_dir", download_path,
-                "+app_update", special_game["app_id"],
-                "+quit"
-            ])
-    else:
-        # Regular games
-        cmd_args.extend([
-            "+force_install_dir", download_path,
-            "+app_update", appid, 
-            "+quit"
-        ])
+    # Add standard installation commands
+    cmd_args.extend([
+        "+force_install_dir", download_path,
+        "+app_update", appid
+    ])
+    
+    # For special games, add license request if needed
+    if is_special_game and not anonymous:
+        cmd_args.extend(["+app_license_request", appid])
+    
+    # Add validation if requested
+    if validate_download:
+        cmd_args.append("validate")
+    
+    # Add quit command
+    cmd_args.append("+quit")
+    
+    # Log the command without using nested f-strings
+    cmd_str = " ".join([arg if " " not in arg else f'"{arg}"' for arg in cmd_args])
+    logger.info(f"SteamCMD command: {cmd_str}")
     
     # Add to active downloads with initial status
     with queue_lock:
@@ -595,12 +589,8 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             "start_time": datetime.now(),
             "path": download_path,
             "anonymous": anonymous,
-            "command": " ".join([arg if " " not in arg else f'"{arg}"' for arg in cmd_args])
+            "command": cmd_str
         }
-    
-    # Log the command without using nested f-strings
-    cmd_str = " ".join([arg if " " not in arg else f'"{arg}"' for arg in cmd_args])
-    logger.info(f"SteamCMD command: {cmd_str}")
     
     try:
         # Start SteamCMD process
