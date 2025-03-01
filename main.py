@@ -168,7 +168,7 @@ def validate_appid(appid):
             logging.error(f"Invalid response from Steam API for App ID {appid}")
             return False, "Invalid response from Steam API"
         
-        if not data.get(appid, {}).get('success', False):
+        if not data[appid].get('success', False):
             logging.warning(f"Game not found for App ID: {appid}")
             return False, "Game not found on Steam"
         
@@ -417,7 +417,10 @@ def download_game(username, password, guard_code, anonymous, appid, validate=Tru
             }
 
         # Get game name for display
-        _, game_info = validate_appid(appid)
+        is_valid, game_info = validate_appid(appid)
+        if not is_valid:
+            raise Exception(f"Invalid AppID: {appid}. Error: {game_info}")
+        
         active_downloads[download_id]["name"] = game_info.get('name', 'Unknown')
 
         # Start download process
