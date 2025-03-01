@@ -804,7 +804,7 @@ def reorder_queue(from_position, to_position):
             
             logging.info(f"Moved download from position {from_position} to {to_position}")
             return True, f"Moved download from position {from_position} to {to_position}"
-    else:
+        else:
             logging.warning(f"Invalid queue positions: from={from_position}, to={to_position}")
             return False, "Invalid queue positions"
 
@@ -1024,10 +1024,18 @@ def get_downloads_status():
         # Return empty data in case of error
         return [], [], []
 
+def check_and_install_steamcmd():
+    steamcmd_path = "/app/steamcmd/steamcmd.sh"
+    if not os.path.exists(steamcmd_path):
+        logging.info("SteamCMD is not installed. Installing...")
+        # Logic to download and install SteamCMD
+        install_steamcmd()  # Ensure this function is defined
+    else:
+        logging.info("SteamCMD is already installed.")
+
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
-    if not check_steamcmd():
-        install_steamcmd()
+    check_and_install_steamcmd()
     
     # Create the Gradio interface directly
     app_interface = create_gradio_interface()
