@@ -28,5 +28,10 @@ RUN mkdir -p /data/downloads /app/steamcmd /app/logs
 ENV STEAM_DOWNLOAD_PATH=/data/downloads
 ENV LOG_LEVEL=INFO
 
+# Create appcache directory, add appinfo.vdf, and set permissions
+RUN mkdir -p /root/Steam/appcache && \
+    echo "326360" > /root/Steam/appcache/appinfo.vdf && \
+    chmod -R 777 /root/Steam
+
 # Run the entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

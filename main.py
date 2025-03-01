@@ -390,11 +390,14 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
         if not is_valid:
             return f"Invalid game: {game_info}"
         
-        # Generate a unique download ID
-        download_id = f"dl_{int(time.time())}_{appid}"
-        
-        game_name = game_info.get('name', f'Unknown Game ({appid})')
-        
+        game_name = game_info.get('name', f'App_{appid}')  # Ensure name exists
+        is_free = game_info.get('is_free', False)
+
+        # Force anonymous for free games regardless of user choice
+        if is_free:
+            anonymous = True
+            logging.info(f"Enforcing anonymous login for free game: {game_name}")
+
         # Create directory if it doesn't exist
         download_dir = get_default_download_location()
         game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
@@ -402,16 +405,20 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
         
         # Prepare SteamCMD command
         cmd_args = [get_steamcmd_path()]
-        
         cmd_args.extend(["+force_install_dir", game_dir])  # Ensure this is before login
+        
         if anonymous:
-            cmd_args.extend(["+login", "anonymous"])
+            cmd_args += [
+                "+login", "anonymous",
+                "+@sSteamCmdForcePlatformType", "windows",  # Required for some games
+                "+app_license_request", appid  # Critical for free games
+            ]
         else:
             cmd_args.extend(["+login", username, password])
             if guard_code:
                 # Handle Steam Guard code if provided
                 cmd_args[-1] = f"{password} {guard_code}"
-        
+
         cmd_args.extend([
             "+app_update", appid
         ])
@@ -466,6 +473,10 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
 def monitor_download_process(download_id, process, validate_download):
     """Enhanced monitoring with proper cleanup"""
     try:
+        # Get appid first before anything else
+        appid = active_downloads[download_id]["appid"]
+        game_name = active_downloads[download_id].get("name", f"App_{appid}")  # Safe handling of game_name
+        
         # Track last progress update to calculate download speed
         last_progress = 0
         last_update_time = time.time()
@@ -564,25 +575,18 @@ def monitor_download_process(download_id, process, validate_download):
             logging.error(f"Download failed for {game_name} (AppID: {appid}) with return code {return_code}")
             active_downloads[download_id]["status"] = f"Failed (code: {return_code})"
     
-    except Exception as e:
-        logging.error(f"Monitoring error: {str(e)}")
-        active_downloads[download_id]["status"] = f"Monitoring Error: {str(e)}"
+    except KeyError as e:
+        logging.error(f"Missing download data for {download_id}: {str(e)}")
+        active_downloads[download_id]["status"] = "Configuration Error"
     
     finally:
-        # Always clean up regardless of success/failure
-        try:
-            if process.poll() is None:
-                process.terminate()
-                process.wait(5)
-        except:
-            pass
-            
-        # Immediate cleanup instead of delayed
+        # Enhanced cleanup
         with queue_lock:
-            if download_id in active_downloads:
-                del active_downloads[download_id]
-        
-        # Start next download immediately
+            try:
+                if download_id in active_downloads:
+                    del active_downloads[download_id]
+            except KeyError:
+                pass
         process_download_queue()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
@@ -609,13 +613,19 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logging.error(error_msg)
         return error_msg
     
-    # Check if this is a free game and enforce anonymous login requirements
+    # After appid validation
     is_free = game_info.get('is_free', False)
-    if not is_free and anonymous:
-        error_msg = f"This game ({game_info.get('name')}) is not free. You must log in with your Steam account to download it."
-        logging.error(error_msg)
-        return error_msg
     
+    if not is_free and anonymous:
+        return "This paid game requires Steam account login"
+    
+    if is_free:
+        # Force remove credentials for free games
+        username = ""
+        password = ""
+        anonymous = True
+        logging.info(f"Enforcing anonymous login for free game: {game_info.get('name')}")
+
     # Check if we can start a new download immediately or need to queue
     with queue_lock:
         if not active_downloads:  # No active downloads
