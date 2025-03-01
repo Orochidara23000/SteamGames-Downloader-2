@@ -293,13 +293,35 @@ def parse_progress(line):
         return {}
 
 def process_download_queue():
+    """Enhanced queue processor with stale entry cleanup"""
     with queue_lock:
-        if download_queue and len(active_downloads) == 0:
+        # Clean up zombie processes first
+        current_pid = os.getpid()
+        parent = psutil.Process(current_pid)
+        alive_children = []
+        
+        for child in parent.children(recursive=True):
+            try:
+                if child.is_running():
+                    alive_children.append(child.pid)
+            except:
+                pass
+        
+        # Remove entries for dead processes
+        for dl_id in list(active_downloads.keys()):
+            if active_downloads[dl_id].get('pid') not in alive_children:
+                del active_downloads[dl_id]
+                logging.warning(f"Cleaned up stale download {dl_id}")
+
+        # Process queue normally
+        if download_queue and len(active_downloads) < MAX_CONCURRENT_DOWNLOADS:
             next_download = download_queue.pop(0)
-            thread = threading.Thread(target=next_download["function"], args=next_download["args"])
-            thread.daemon = True
+            thread = threading.Thread(
+                target=download_worker,
+                args=(next_download),
+                daemon=True
+            )
             thread.start()
-            logging.info(f"Started new download thread. Remaining in queue: {len(download_queue)}")
 
 def verify_installation(appid, install_path):
     logging.info(f"Verifying installation for App ID: {appid} at path: {install_path}")
@@ -399,6 +421,15 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
         
         cmd_args.append("+quit")
         
+        # Start the process
+        process = subprocess.Popen(
+            cmd_args, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,  # Capture standard error
+            text=True,
+            bufsize=1
+        )
+        
         # Add to active downloads
         active_downloads[download_id] = {
             "appid": appid,
@@ -410,23 +441,13 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
             "speed": "0 KB/s",
             "size_downloaded": "0 MB",
             "total_size": "Unknown",
-            "cmd": cmd_args
+            "cmd": cmd_args,
+            "process": process,  # Store process reference
+            "pid": process.pid  # Store PID for later cleanup
         }
         
         logging.info(f"Starting download for {game_name} (AppID: {appid}) with ID: {download_id}")
         logging.debug(f"Command: {' '.join(cmd_args)}")
-        
-        # Start the process
-        process = subprocess.Popen(
-            cmd_args, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE,  # Capture standard error
-            text=True,
-            bufsize=1
-        )
-        
-        # Log the initial state of active downloads
-        logging.info(f"Active downloads before starting: {active_downloads}")
         
         # Monitor the download process in a separate thread
         threading.Thread(
@@ -443,19 +464,7 @@ def download_game(username, password, guard_code, anonymous, appid, validate_dow
 
 # Add this new function to monitor the download process
 def monitor_download_process(download_id, process, validate_download):
-    """
-    Monitors the download process and updates progress and status.
-    
-    Args:
-        download_id (str): The unique download ID
-        process (subprocess.Popen): The SteamCMD process
-        validate_download (bool): Whether to validate files after download
-    """
-    appid = active_downloads[download_id]["appid"]
-    game_name = active_downloads[download_id]["name"]
-    download_dir = get_default_download_location()
-    game_dir = os.path.join(download_dir, f"steamapps/common/{game_name.replace(':', '').replace('/', '_')}")
-    
+    """Enhanced monitoring with proper cleanup"""
     try:
         # Track last progress update to calculate download speed
         last_progress = 0
@@ -556,15 +565,25 @@ def monitor_download_process(download_id, process, validate_download):
             active_downloads[download_id]["status"] = f"Failed (code: {return_code})"
     
     except Exception as e:
-        logging.error(f"Error monitoring download {download_id}: {str(e)}", exc_info=True)
-        active_downloads[download_id]["status"] = f"Error: {str(e)}"
+        logging.error(f"Monitoring error: {str(e)}")
+        active_downloads[download_id]["status"] = f"Monitoring Error: {str(e)}"
     
     finally:
-        # Update status to add to historical downloads (if implemented)
-        # Note: Implement a history tracking system if needed
+        # Always clean up regardless of success/failure
+        try:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(5)
+        except:
+            pass
+            
+        # Immediate cleanup instead of delayed
+        with queue_lock:
+            if download_id in active_downloads:
+                del active_downloads[download_id]
         
-        # Start next download in queue after a short delay
-        threading.Timer(2.0, process_download_queue).start()
+        # Start next download immediately
+        process_download_queue()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
@@ -671,39 +690,34 @@ def get_download_status():
     }
 
 def cancel_download(download_id):
-    logging.info(f"Attempting to cancel download: {download_id}")
+    """Improved cancellation with guaranteed cleanup"""
+    logging.info(f"Canceling download {download_id}")
     
-    if download_id in active_downloads:
-        # Find and terminate the process
-        current_pid = os.getpid()
-        parent = psutil.Process(current_pid)
+    with queue_lock:
+        if download_id in active_downloads:
+            # Get process reference directly
+            process = active_downloads[download_id].get('process')
+            
+            # Force termination
+            if process and process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(5)
+                except:
+                    pass
+            
+            # Remove from active regardless of process state
+            del active_downloads[download_id]
+            logging.info(f"Removed {download_id} from active downloads")
+            return f"Successfully canceled {download_id}"
         
-        for child in parent.children(recursive=True):
-            try:
-                cmdline = ' '.join(child.cmdline())
-                if get_steamcmd_path() in cmdline and active_downloads[download_id]["appid"] in cmdline:
-                    logging.info(f"Terminating process {child.pid} for download {download_id}")
-                    child.terminate()
-                    child.wait(5)  # Wait up to 5 seconds for graceful termination
-                    
-                    # If still running, kill forcefully
-                    if child.is_running():
-                        logging.warning(f"Process {child.pid} did not terminate gracefully, killing forcefully")
-                        child.kill()
-                    
-                    active_downloads[download_id]["status"] = "Cancelled"
-                    del active_downloads[download_id]
-                    
-                    # Process next download in queue
-                    process_download_queue()
-                    
-                    return f"Download {download_id} cancelled successfully"
-            except Exception as e:
-                logging.error(f"Error cancelling process: {str(e)}")
+        # Check if it's in the queue
+        for idx, item in enumerate(download_queue):
+            if item['args']['download_id'] == download_id:
+                del download_queue[idx]
+                return f"Removed {download_id} from queue"
         
-        return f"Could not find process for download {download_id}"
-    else:
-        return f"Download {download_id} not found in active downloads"
+        return f"Download ID {download_id} not found"
 
 def remove_from_queue(position):
     position = int(position)
