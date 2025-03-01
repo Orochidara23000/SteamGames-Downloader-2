@@ -629,13 +629,14 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             "start_time": datetime.now(),
             "path": download_path,
             "anonymous": anonymous,
-            "command": cmd_str,
-            "size_downloaded": "0 MB",
-            "total_size": "Unknown"
+            "command": cmd_str
         }
     
+    logger.info(f"[{game_name}] Download ID: {download_id}")
+    logger.info(f"[{game_name}] Download starting...")
+    
     try:
-        # Start SteamCMD process with improved output handling
+        # Start SteamCMD process
         process = subprocess.Popen(
             cmd_args, 
             stdout=subprocess.PIPE, 
@@ -651,98 +652,96 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                 active_downloads[download_id]["status"] = "In Progress"
                 active_downloads[download_id]["process_pid"] = process.pid
         
+        logger.info(f"[{game_name}] Download started (PID: {process.pid})")
+        
         # Set up a timeout for stalled downloads
         last_progress_time = time.time()
         last_progress_value = 0
         stall_timeout = 300  # 5 minutes with no progress is considered stalled
         
-        # Read output line by line with better handling of progress updates
+        # Read output line by line
         output_buffer = []
         download_error = False
         error_message = ""
+        last_progress_log = 0  # To avoid logging every tiny progress update
         
-        # Use a non-blocking approach with timeout
-        import io
-        import select
-        
-        process_stdout = io.TextIOWrapper(process.stdout.buffer, encoding='utf-8', errors='replace')
-        
-        # Continue reading while process is alive
-        while process.poll() is None:
-            # Check for output with a timeout
-            ready, _, _ = select.select([process_stdout], [], [], 1.0)
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+                
+            output_buffer.append(line)
             
-            if ready:
-                line = process_stdout.readline().strip()
-                if not line:
-                    continue
-                
-                output_buffer.append(line)
-                logger.debug(f"SteamCMD output: {line}")
-                
-                # Parse progress from output
-                progress_info = parse_progress(line)
-                
-                # Check for error conditions
-                if "error" in progress_info:
-                    download_error = True
-                    error_message = progress_info.get("error_message", "Unknown error")
-                    logger.error(f"Download error: {error_message}")
-                    break
-                
-                # Update the download status with parsed progress info
-                with queue_lock:
-                    if download_id in active_downloads:
-                        # Update progress if available
-                        if "progress" in progress_info:
-                            progress_value = progress_info["progress"]
-                            active_downloads[download_id]["progress"] = progress_value
+            # Only log important lines to avoid flooding
+            if "error" in line.lower() or "warning" in line.lower() or "fail" in line.lower():
+                logger.warning(f"[{game_name}] {line}")
+            elif "progress" in line.lower() or "download" in line.lower() or "%" in line.lower():
+                logger.debug(f"[{game_name}] {line}")
+            
+            # Parse progress from output
+            progress_info = parse_progress(line)
+            
+            # Check for error conditions
+            if "error" in progress_info:
+                download_error = True
+                error_message = progress_info.get("error_message", "Unknown error")
+                logger.error(f"[{game_name}] Download error: {error_message}")
+                break
+            
+            # Update the download status with parsed progress info
+            with queue_lock:
+                if download_id in active_downloads:
+                    # Update progress if available
+                    if "progress" in progress_info:
+                        progress_value = progress_info["progress"]
+                        active_downloads[download_id]["progress"] = progress_value
+                        
+                        # Update last progress time if there's actual progress
+                        if progress_value > last_progress_value:
+                            last_progress_time = time.time()
                             
-                            # Update last progress time if there's actual progress
-                            if progress_value > last_progress_value:
-                                last_progress_time = time.time()
-                                last_progress_value = progress_value
-                                logger.info(f"Download progress: {progress_value:.2f}%")
-                        
-                        # Update download speed if available
-                        if "speed" in progress_info and "speed_unit" in progress_info:
-                            speed_text = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
-                            active_downloads[download_id]["speed"] = speed_text
-                            logger.info(f"Download speed: {speed_text}")
-                        
-                        # Update ETA if available
-                        if "eta" in progress_info:
-                            active_downloads[download_id]["eta"] = progress_info["eta"]
-                            logger.info(f"ETA: {progress_info['eta']}")
-                        
-                        # Update total size if available
-                        if "total_size" in progress_info and "unit" in progress_info:
-                            size_text = f"{progress_info['total_size']} {progress_info['unit']}"
-                            active_downloads[download_id]["total_size"] = size_text
-                            logger.info(f"Total size: {size_text}")
-                        
-                        # Update current size if available
-                        if "current_size" in progress_info and "unit" in progress_info:
-                            current_text = f"{progress_info['current_size']} {progress_info['unit']}"
-                            active_downloads[download_id]["size_downloaded"] = current_text
-                            logger.info(f"Downloaded: {current_text}")
-                        
-                        # Always update runtime (shown as "Time Running")
-                        active_downloads[download_id]["runtime"] = str(datetime.now() - active_downloads[download_id]["start_time"]).split('.')[0]
+                            # Only log every 5% or more change to avoid spam
+                            if progress_value - last_progress_log >= 5 or progress_value == 100:
+                                logger.info(f"[{game_name}] Download progress: {progress_value:.1f}%")
+                                last_progress_log = progress_value
+                            
+                            last_progress_value = progress_value
+                    
+                    # Update download speed if available
+                    if "speed" in progress_info and "speed_unit" in progress_info:
+                        speed_text = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
+                        active_downloads[download_id]["speed"] = speed_text
+                        logger.info(f"[{game_name}] Download speed: {speed_text}")
+                    
+                    # Update ETA if available
+                    if "eta" in progress_info:
+                        active_downloads[download_id]["eta"] = progress_info["eta"]
+                        logger.info(f"[{game_name}] ETA: {progress_info['eta']}")
+                    
+                    # Update total size if available
+                    if "total_size" in progress_info and "unit" in progress_info:
+                        size_text = f"{progress_info['total_size']} {progress_info['unit']}"
+                        active_downloads[download_id]["total_size"] = size_text
+                        logger.info(f"[{game_name}] Total size: {size_text}")
+                    
+                    # Update current size if available
+                    if "current_size" in progress_info and "unit" in progress_info:
+                        current_text = f"{progress_info['current_size']} {progress_info['unit']}"
+                        active_downloads[download_id]["size_downloaded"] = current_text
+                        logger.info(f"[{game_name}] Downloaded: {current_text}")
             
-            # Check for success message in the entire output buffer
-            if any(("Success!" in line or "fully installed" in line) for line in output_buffer[-20:]):
+            # Check for success message
+            if "success" in progress_info:
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["progress"] = 100.0
                         active_downloads[download_id]["status"] = "Complete"
-                logger.info(f"Download completed successfully for {game_name}")
-                break
+                logger.info(f"[{game_name}] Download completed successfully!")
             
-            # Check if download has stalled (no progress in timeout period)
+            # Check if download has stalled
             current_time = time.time()
             if current_time - last_progress_time > stall_timeout:
-                logger.warning(f"Download appears to be stalled - no progress for {stall_timeout} seconds")
+                logger.warning(f"[{game_name}] Download appears to be stalled - no progress for {stall_timeout} seconds")
                 
                 # Add a stalled status to the download
                 with queue_lock:
@@ -750,18 +749,6 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                         # Only mark as stalled if we're not at 100%
                         if active_downloads[download_id]["progress"] < 100:
                             active_downloads[download_id]["status"] = "Stalled"
-                            active_downloads[download_id]["stalled_time"] = datetime.now()
-                
-                # For now, we'll let the process continue running in case it resumes
-                # Alternative approach would be to terminate and restart
-        
-        # Read any remaining output
-        while True:
-            line = process_stdout.readline().strip()
-            if not line:
-                break
-            output_buffer.append(line)
-            logger.debug(f"Final SteamCMD output: {line}")
         
         # Wait for process to complete with timeout
         try:
@@ -773,7 +760,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-            logger.warning(f"SteamCMD process for {game_name} terminated after timeout")
+            logger.warning(f"[{game_name}] SteamCMD process terminated after timeout")
         
         # Check for download error
         if download_error:
@@ -790,18 +777,44 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                         "status": "Failed",
                         "error": error_message,
                         "start_time": active_downloads[download_id]["start_time"],
-                        "end_time": datetime.now()
+                        "end_time": datetime.now(),
+                        "duration": str(datetime.now() - active_downloads[download_id]["start_time"]).split('.')[0]
                     })
                     
                     # Remove from active downloads
                     del active_downloads[download_id]
             
-            logger.error(f"Download failed for {game_name}: {error_message}")
+            logger.error(f"[{game_name}] Download failed: {error_message}")
             return f"Error: Download failed. {error_message}"
+        
+        # Check process exit code
+        if process.returncode != 0:
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = "Failed"
+                    active_downloads[download_id]["error"] = f"SteamCMD exited with code {process.returncode}"
+                    
+                    # Move to download history
+                    download_history.insert(0, {
+                        "id": download_id,
+                        "appid": appid,
+                        "name": game_name,
+                        "status": "Failed",
+                        "error": f"SteamCMD exited with code {process.returncode}",
+                        "start_time": active_downloads[download_id]["start_time"],
+                        "end_time": datetime.now(),
+                        "duration": str(datetime.now() - active_downloads[download_id]["start_time"]).split('.')[0]
+                    })
+                    
+                    # Remove from active downloads
+                    del active_downloads[download_id]
+            
+            logger.error(f"[{game_name}] SteamCMD process exited with code {process.returncode}")
+            return f"Error: SteamCMD exited with code {process.returncode}"
         
         # Validate download if requested
         if validate_download:
-            logger.info(f"Validating download for {game_name}")
+            logger.info(f"[{game_name}] Validating download...")
             with queue_lock:
                 if download_id in active_downloads:
                     active_downloads[download_id]["status"] = "Validating"
@@ -809,17 +822,17 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             validation_success = verify_installation(appid, download_path)
             
             if validation_success:
-                logger.info(f"Validation successful for {game_name}")
+                logger.info(f"[{game_name}] Validation successful!")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["status"] = "Valid"
             else:
-                logger.warning(f"Validation failed for {game_name}")
+                logger.warning(f"[{game_name}] Validation failed")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["status"] = "Invalid"
         else:
-            logger.info(f"Validation skipped for {game_name}")
+            logger.info(f"[{game_name}] Validation skipped")
         
         # Calculate download stats
         end_time = datetime.now()
@@ -845,12 +858,12 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         # Process next download in queue
         process_download_queue()
         
-        logger.info(f"Download process completed for {game_name}")
+        logger.info(f"[{game_name}] Download process completed! Game installed to: {download_path}")
         return f"Download completed for {game_name}"
     
     except Exception as e:
         # Handle any unexpected exceptions
-        logger.error(f"Unexpected error during download of {game_name}: {str(e)}")
+        logger.error(f"[{game_name}] Unexpected error: {str(e)}")
         
         # Update download status to reflect the error
         with queue_lock:
@@ -866,7 +879,8 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                     "status": "Failed",
                     "error": str(e),
                     "start_time": active_downloads[download_id]["start_time"],
-                    "end_time": datetime.now()
+                    "end_time": datetime.now(),
+                    "duration": str(datetime.now() - active_downloads[download_id]["start_time"]).split('.')[0]
                 })
                 
                 # Remove from active downloads
@@ -1265,26 +1279,44 @@ def create_download_games_tab():
         return game_input, check_game_btn, download_btn, download_status
 
 def create_downloads_tab():
-    """Create the 'Downloads' tab in the Gradio interface."""
+    """Create the 'Downloads' tab in the Gradio interface with real-time logs instead of tabular data."""
     with gr.Tab("Downloads"):
         with gr.Row():
-            with gr.Column():
-                gr.Markdown("### Active Downloads")
-                active_downloads_table = gr.Dataframe(
-                    headers=["ID", "Name", "Progress", "Status", "Speed", "ETA", "Time Running"],
-                    interactive=False,
-                    row_count=5,  # Show more rows
-                    col_count=(7, "fixed")  # Fix column count to match headers
+            with gr.Column(scale=2):
+                gr.Markdown("### Download Progress")
+                # Replace the table with a scrolling log display
+                download_logs = gr.Textbox(
+                    label="Real-Time Download Progress",
+                    value="Waiting for downloads to start...\n",
+                    lines=20,
+                    max_lines=1000,
+                    autoscroll=True,
+                    interactive=False
                 )
                 
+                # Cancel functionality
                 with gr.Row():
                     cancel_download_input = gr.Textbox(
                         label="Download ID to Cancel",
                         placeholder="Enter download ID to cancel"
                     )
                     cancel_download_btn = gr.Button("Cancel Download", variant="secondary")
-                
                 cancel_output = gr.Textbox(label="Cancel Result", interactive=False)
+            
+            with gr.Column(scale=1):
+                gr.Markdown("### System Status")
+                system_stats = gr.Dataframe(
+                    headers=["Metric", "Value"],
+                    value=[
+                        ["CPU Usage", f"{psutil.cpu_percent()}%"],
+                        ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
+                        ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
+                        ["Active Downloads", str(len(active_downloads))],
+                        ["Queued Downloads", str(len(download_queue))]
+                    ],
+                    interactive=False,
+                    wrap=True
+                )
         
         with gr.Row():
             with gr.Column():
@@ -1333,95 +1365,88 @@ def create_downloads_tab():
                     interactive=False
                 )
         
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### System Status")
-                system_stats = gr.Dataframe(
-                    headers=["Metric", "Value"],
-                    value=[
-                        ["CPU Usage", f"{psutil.cpu_percent()}%"],
-                        ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
-                        ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
-                        ["Active Downloads", str(len(active_downloads))],
-                        ["Queued Downloads", str(len(download_queue))]
-                    ],
-                    interactive=False
-                )
-        
-        # Refresh button for downloads status
-        with gr.Row():
-            refresh_btn = gr.Button("Refresh Status")
-            auto_refresh = gr.Checkbox(label="Auto-refresh (10s)", value=False)
-            refresh_status = gr.Textbox(label="Refresh Status", interactive=False)
-        
-        # Function to update download status in the UI
-        def update_downloads_status():
-            try:
-                # Fetch the latest download status
-                status = get_download_status()
+        # Set up a log handler to capture logs for the UI
+        class UILogHandler(logging.Handler):
+            def __init__(self, log_box):
+                super().__init__()
+                self.log_box = log_box
+                self.buffer = []
+                self.max_lines = 1000
+                self.lock = threading.Lock()
                 
-                # Format active downloads for table display
-                active_data = []
-                for download in status["active"]:
-                    # Format progress with 1 decimal place
-                    progress_display = f"{download['progress']:.1f}%" if isinstance(download['progress'], (int, float)) else download['progress']
-                    
-                    # Ensure we have data for all columns
-                    active_data.append([
-                        download["id"][:8],  # Shorten UUID for display
-                        download["name"],
-                        progress_display,
-                        download["status"],
-                        str(download.get("speed", "Unknown")),  # Ensure string conversion
-                        str(download.get("eta", "Unknown")),
-                        str(download.get("runtime", "Unknown"))
-                    ])
+                # Format for download-related logs only
+                self.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+                self.setLevel(logging.INFO)
                 
-                # Format queue for table display
-                queue_data = []
-                for item in status["queue"]:
-                    queue_data.append([
-                        item["position"],
-                        item["appid"],
-                        item["name"],
-                        item["size"],
-                        "Yes" if item["validate"] else "No"
-                    ])
-                
-                # Format history for table display
-                history_data = []
-                for item in status["history"]:
-                    history_data.append([
-                        item["id"],
-                        item["name"],
-                        item["status"],
-                        item.get("duration", "Unknown"),
-                        item["end_time"]
-                    ])
-                
-                # Format system stats
-                system_data = [
-                    ["CPU Usage", f"{status['system']['cpu_usage']}%"],
-                    ["Memory Usage", f"{status['system']['memory_usage']}%"],
-                    ["Disk Usage", f"{status['system']['disk_usage']}%"],
-                    ["Active Downloads", str(len(status["active"]))],
-                    ["Queued Downloads", str(len(status["queue"]))],
-                    ["System Uptime", status['system']['uptime']]
-                ]
-                
-                # Return the data as outputs
-                return active_data, queue_data, history_data, system_data
+                # Start the update thread
+                self.update_thread = threading.Thread(target=self.update_ui, daemon=True)
+                self.update_thread.start()
             
-            except Exception as e:
-                logger.error(f"Error updating download status: {str(e)}")
-                # Return empty lists for all outputs if there's an error
-                return [], [], [], []
+            def emit(self, record):
+                if record.levelno >= self.level:
+                    # Only capture download-related logs
+                    if "progress" in record.getMessage().lower() or \
+                       "download" in record.getMessage().lower() or \
+                       "speed" in record.getMessage().lower() or \
+                       "eta" in record.getMessage().lower() or \
+                       "steamcmd" in record.getMessage().lower():
+                        with self.lock:
+                            self.buffer.append(self.format(record))
+                            # Keep buffer size limited
+                            if len(self.buffer) > self.max_lines:
+                                self.buffer = self.buffer[-self.max_lines:]
+            
+            def update_ui(self):
+                while True:
+                    try:
+                        # Get the current buffer
+                        with self.lock:
+                            if self.buffer:
+                                log_text = "\n".join(self.buffer)
+                                self.log_box.update(value=log_text)
+                        
+                        # Update system stats
+                        stats = [
+                            ["CPU Usage", f"{psutil.cpu_percent()}%"],
+                            ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
+                            ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
+                            ["Active Downloads", str(len(active_downloads))],
+                            ["Queued Downloads", str(len(download_queue))]
+                        ]
+                        system_stats.update(value=stats)
+                        
+                        # Update queue table
+                        queue_data = []
+                        for i, download in enumerate(download_queue):
+                            appid = download["args"][4]
+                            queue_data.append([
+                                i + 1,  # Position
+                                appid,
+                                download.get("name", "Unknown Game"),
+                                "Unknown",  # Size
+                                "Yes" if download["args"][5] else "No"  # Validate
+                            ])
+                        queue_table.update(value=queue_data)
+                        
+                        # Update history table
+                        history_data = []
+                        for download in download_history[:10]:  # Show latest 10 entries
+                            history_data.append([
+                                download.get("id", "")[:8],  # Shorten ID
+                                download.get("name", "Unknown"),
+                                download.get("status", "Unknown"),
+                                download.get("duration", "Unknown"),
+                                download.get("end_time", datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+                            ])
+                        history_table.update(value=history_data)
+                    except Exception as e:
+                        logger.error(f"Error updating UI: {str(e)}")
+                    
+                    time.sleep(1)  # Update every second
         
-        # Connect events for refreshing data
-        refresh_btn.click(
-            fn=update_downloads_status,
-            outputs=[active_downloads_table, queue_table, history_table, system_stats]
-        )
+        # Create and add the UI log handler
+        ui_log_handler = UILogHandler(download_logs)
+        logger.addHandler(ui_log_handler)
         
         # Connect cancel download button
         cancel_download_btn.click(
@@ -1444,50 +1469,8 @@ def create_downloads_tab():
             outputs=[queue_action_result]
         )
         
-        # Set up auto-refresh with better implementation
-        def setup_auto_refresh():
-            while True:
-                try:
-                    time.sleep(5)  # Refresh every 5 seconds
-                    update_downloads_status()
-                except Exception as e:
-                    logger.error(f"Error in auto-refresh: {str(e)}")
-                    time.sleep(10)  # Wait longer after an error
-        
-        refresh_interval = None
-        refresh_thread = None
-        
-        def toggle_auto_refresh(enabled):
-            nonlocal refresh_interval, refresh_thread
-            
-            if enabled and refresh_thread is None:
-                # Start a new thread for auto-refresh
-                refresh_interval = 5  # seconds
-                refresh_thread = threading.Thread(target=setup_auto_refresh)
-                refresh_thread.daemon = True
-                refresh_thread.start()
-                logger.info("Auto-refresh started")
-                return "Auto-refresh enabled (5s)"
-            elif not enabled and refresh_thread is not None:
-                # We can't directly stop the thread, but we can set the interval to None
-                # which will make it exit on next iteration
-                refresh_interval = None
-                refresh_thread = None
-                logger.info("Auto-refresh stopped")
-                return "Auto-refresh disabled"
-            return ""
-        
-        # Initial update
-        update_downloads_status()
-        
-        # Connect auto-refresh toggle
-        auto_refresh.change(
-            fn=toggle_auto_refresh,
-            inputs=[auto_refresh],
-            outputs=[refresh_status]
-        )
-        
-    return refresh_btn, auto_refresh
+    # No need to return refresh buttons anymore
+    return None, None
 
 def create_gradio_interface():
     """Create the main Gradio interface with all tabs."""
@@ -1524,27 +1507,12 @@ def create_gradio_interface():
                             ],
                             interactive=False
                         )
-                        
-                        refresh_system_btn = gr.Button("Refresh System Info")
-                        
-                        def update_system_info():
-                            return [
-                                ["Operating System", platform.platform()],
-                                ["CPU", platform.processor()],
-                                ["Python Version", platform.python_version()],
-                                ["Total Memory", f"{psutil.virtual_memory().total / (1024**3):.2f} GB"],
-                                ["Free Disk Space", f"{psutil.disk_usage('/').free / (1024**3):.2f} GB"],
-                                ["SteamCMD Path", get_steamcmd_path()],
-                                ["Download Path", get_default_download_location()]
-                            ]
-                        
-                        refresh_system_btn.click(fn=update_system_info, outputs=[system_info])
             
             # Call the create_download_games_tab function here
             game_input, check_game_btn, download_btn, download_status = create_download_games_tab()
             
-            # Add the improved Downloads tab
-            refresh_btn, auto_refresh = create_downloads_tab()
+            # Downloads tab (now returns None, None)
+            _ = create_downloads_tab()
             
             with gr.Tab("Settings"):
                 with gr.Row():
