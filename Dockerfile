@@ -2,12 +2,14 @@ FROM python:3.9-slim
 
 # Install required system dependencies
 RUN apt-get update && \
-    apt-get install -y \
-    lib32gcc-s1 \
-    curl \
-    libcurl4 \
-    sudo \
-    && rm -rf /var/lib/apt/lists/*
+    apt-get install -y wget tar gzip && \
+    mkdir -p /steam/downloads /home/steamuser && \
+    chown -R 1000:1000 /steam && \
+    ln -s /steam /home/steamuser/steam && \
+    wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz && \
+    tar -xvzf steamcmd_linux_old.tar.gz -C /steam && \
+    rm steamcmd_linux_old.tar.gz && \
+    apt-get purge -y wget && apt-get autoremove -y
 
 # Set working directory
 WORKDIR /app
@@ -24,14 +26,6 @@ RUN chmod +x entrypoint.sh
 
 # Create directories for volumes
 RUN mkdir -p /data/downloads /app/logs
-
-# Replace previous SteamCMD setup with new commands
-RUN mkdir -p /steam/downloads \
-    && chown -R 1000:1000 /steam \
-    && ln -s /steam /home/steamuser \
-    && wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz \
-    && tar -xvzf steamcmd_linux_old.tar.gz -C /steam \
-    && rm steamcmd_linux_old.tar.gz
 
 # Set environment variables
 ENV STEAM_DOWNLOAD_PATH=/data/downloads

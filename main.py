@@ -1250,12 +1250,11 @@ def get_downloads_status():
         # Prepare system statistics data
         system_data = [
             ["CPU Usage", f"{status['system']['cpu_usage']}%"],
-             ["Memory Usage", f"{status['system']['memory_usage']}%"],
-             ["Disk Usage", f"{status['system']['disk_usage']}%"],
-             ["Active Downloads", str(len(status["active"]))],
-             ["Queued Downloads", str(len(status["queue"]))],
-             ["System Uptime", status['system']['uptime']]
-            ]
+            ["Memory Usage", f"{status['system']['memory_usage']}%"],
+            ["Disk Usage", f"{status['system']['disk_usage']}%"],
+            ["Active Downloads", str(len(status["active"]))],
+            ["Queued Downloads", str(len(status["queue"]))],
+            ["System Uptime", status['system']['uptime']]
         ]
         
         return active_data, queue_data, system_data
