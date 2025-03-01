@@ -17,6 +17,7 @@ import psutil
 import uvicorn
 from fastapi import FastAPI
 import asyncio
+import locale
 
 
 # Set up logging to both file and stdout
@@ -1163,6 +1164,12 @@ if __name__ == "__main__":
     # Ensure SteamCMD is installed
     if not check_steamcmd():
         install_steamcmd()
+    
+    # Set locale to UTF-8
+    try:
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except locale.Error:
+        logging.warning("Failed to set locale to 'en_US.UTF-8', using default locale.")
     
     # Create the Gradio interface directly
     app_interface = create_gradio_interface()
