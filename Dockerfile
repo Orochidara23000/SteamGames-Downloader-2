@@ -1,13 +1,31 @@
-FROM python:3.9-alpine
+# Use official Alpine base image
+FROM alpine:3.18
 
-# Install required system dependencies
-RUN apk add --no-cache wget tar gzip && \
-    mkdir -p /steam/downloads /home/steamuser && \
+# Install required system dependencies with community repository
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache \
+        wget \
+        tar \
+        gzip \
+        libgcc \
+        libstdc++ \
+        ca-certificates && \
+    # Create directory structure
+    mkdir -p /steam/downloads && \
+    mkdir -p /home/steamuser && \
+    # Set ownership before symlink
     chown -R 1000:1000 /steam && \
+    chown -R 1000:1000 /home/steamuser && \
+    # Create symbolic link
     ln -s /steam /home/steamuser/steam && \
-    wget -O steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz && \
-    tar -xvzf steamcmd.tar.gz -C /steam && \
-    rm steamcmd.tar.gz
+    # Download and extract SteamCMD
+    wget -O /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && \
+    tar -xvzf /tmp/steamcmd.tar.gz -C /steam && \
+    # Cleanup
+    rm /tmp/steamcmd.tar.gz && \
+    # Fix permissions
+    chmod -R 755 /steam
 
 # Set working directory
 WORKDIR /app
