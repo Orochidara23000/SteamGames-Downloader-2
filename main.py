@@ -22,6 +22,7 @@ from queue import Queue
 import signal
 import uuid
 import math
+import concurrent.futures
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -264,67 +265,96 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
     """Validate if an AppID exists on Steam and return game information."""
     logger.info(f"Validating App ID: {appid}")
     
-    try:
-        # Check if app exists via Steam API
-        url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
-        logger.info(f"Querying Steam API: {url}")
-        
-        # Add a shorter timeout to prevent hanging
-        response = requests.get(url, timeout=5)
-        logger.info(f"Received response from Steam API with status: {response.status_code}")
-        
-        if not response.ok:
-            logger.error(f"Steam API request failed with status: {response.status_code}")
-            return False, f"Steam API request failed with status: {response.status_code}"
-        
-        data = response.json()
-        
-        if not data or not data.get(appid):
-            logger.error(f"Invalid response from Steam API for App ID {appid}")
+    def _fetch_game_info():
+        try:
+            # Check if app exists via Steam API
+            url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
+            logger.info(f"Querying Steam API: {url}")
+            
+            # Add a shorter timeout to prevent hanging
+            response = requests.get(url, timeout=3)
+            logger.info(f"Received response from Steam API with status: {response.status_code}")
+            
+            if not response.ok:
+                logger.error(f"Steam API request failed with status: {response.status_code}")
+                return False, f"Steam API request failed with status: {response.status_code}"
+            
+            data = response.json()
+            
+            if not data or not data.get(appid):
+                logger.error(f"Invalid response from Steam API for App ID {appid}")
+                return False, "Invalid response from Steam API"
+            
+            if not data.get(appid, {}).get('success', False):
+                logger.warning(f"Game not found for App ID: {appid}")
+                return False, "Game not found on Steam"
+            
+            game_data = data[appid]['data']
+            
+            # Enhanced game info with more details
+            game_info = {
+                'name': game_data.get('name', 'Unknown Game'),
+                'required_age': game_data.get('required_age', 0),
+                'is_free': game_data.get('is_free', False),
+                'developers': game_data.get('developers', ['Unknown']),
+                'publishers': game_data.get('publishers', ['Unknown']),
+                'platforms': game_data.get('platforms', {}),
+                'categories': [cat.get('description') for cat in game_data.get('categories', [])],
+                'genres': [genre.get('description') for genre in game_data.get('genres', [])],
+                'header_image': game_data.get('header_image', None),
+                'background_image': game_data.get('background', None),
+                'release_date': game_data.get('release_date', {}).get('date', 'Unknown'),
+                'metacritic': game_data.get('metacritic', {}).get('score', None),
+                'description': game_data.get('short_description', 'No description available'),
+                'size_mb': game_data.get('file_size', 'Unknown')
+            }
+            
+            logger.info(f"Game found: {game_info['name']} (Free: {game_info['is_free']})")
+            return True, game_info
+            
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout while validating App ID {appid}")
+            return False, "Timeout while connecting to Steam API. Please try again later."
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error while validating App ID {appid}")
+            return False, "Connection error when contacting Steam API. Please check your internet connection."
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error while validating App ID {appid}: {str(e)}")
+            return False, f"Request error: {str(e)}"
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON response from Steam API for App ID {appid}")
             return False, "Invalid response from Steam API"
-        
-        if not data.get(appid, {}).get('success', False):
-            logger.warning(f"Game not found for App ID: {appid}")
-            return False, "Game not found on Steam"
-        
-        game_data = data[appid]['data']
-        
-        # Enhanced game info with more details
-        game_info = {
-            'name': game_data.get('name', 'Unknown Game'),
-            'required_age': game_data.get('required_age', 0),
-            'is_free': game_data.get('is_free', False),
-            'developers': game_data.get('developers', ['Unknown']),
-            'publishers': game_data.get('publishers', ['Unknown']),
-            'platforms': game_data.get('platforms', {}),
-            'categories': [cat.get('description') for cat in game_data.get('categories', [])],
-            'genres': [genre.get('description') for genre in game_data.get('genres', [])],
-            'header_image': game_data.get('header_image', None),
-            'background_image': game_data.get('background', None),
-            'release_date': game_data.get('release_date', {}).get('date', 'Unknown'),
-            'metacritic': game_data.get('metacritic', {}).get('score', None),
-            'description': game_data.get('short_description', 'No description available'),
-            'size_mb': game_data.get('file_size', 'Unknown')
-        }
-        
-        logger.info(f"Game found: {game_info['name']} (Free: {game_info['is_free']})")
-        return True, game_info
-        
-    except requests.exceptions.Timeout:
-        logger.error(f"Timeout while validating App ID {appid}")
-        return False, "Timeout while connecting to Steam API. Please try again later."
-    except requests.exceptions.ConnectionError:
-        logger.error(f"Connection error while validating App ID {appid}")
-        return False, "Connection error when contacting Steam API. Please check your internet connection."
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request error while validating App ID {appid}: {str(e)}")
-        return False, f"Request error: {str(e)}"
-    except json.JSONDecodeError:
-        logger.error(f"Invalid JSON response from Steam API for App ID {appid}")
-        return False, "Invalid response from Steam API"
+        except Exception as e:
+            logger.error(f"Validation error for App ID {appid}: {str(e)}", exc_info=True)
+            return False, f"Validation error: {str(e)}"
+    
+    # First, try to check the cache - if we've already fetched this game info
+    cache_file = os.path.join(CACHE_DIR, f"game_{appid}.json")
+    if os.path.exists(cache_file):
+        try:
+            logger.info(f"Found cached info for App ID {appid}")
+            with open(cache_file, 'r') as f:
+                cached_data = json.load(f)
+                return True, cached_data
+        except Exception as e:
+            logger.warning(f"Failed to read cached data for App ID {appid}: {e}")
+            # Continue to live API fetch if cache reading fails
+    
+    # Use thread executor with timeout to avoid hanging
+    try:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit task to executor and wait with timeout
+            future = executor.submit(_fetch_game_info)
+            try:
+                # Wait for result with a strict timeout
+                result = future.result(timeout=6)  # 6 second timeout
+                return result
+            except concurrent.futures.TimeoutError:
+                logger.error(f"API request timed out for App ID {appid} (thread timeout)")
+                return False, "API request timed out. Steam servers may be unavailable."
     except Exception as e:
-        logger.error(f"Validation error for App ID {appid}: {str(e)}", exc_info=True)
-        return False, f"Validation error: {str(e)}"
+        logger.error(f"Unexpected error in thread execution: {str(e)}", exc_info=True)
+        return False, f"Error: {str(e)}"
 
 # ========================
 # DOWNLOAD MANAGEMENT 
@@ -1932,3 +1962,9 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Application stopped by user")
+
+try:
+    requests.get("https://store.steampowered.com", timeout=3)
+    logger.info("Steam store website is reachable")
+except Exception as e:
+    logger.error(f"Cannot reach Steam store: {str(e)}")
