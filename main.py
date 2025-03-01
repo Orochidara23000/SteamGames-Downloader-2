@@ -999,14 +999,13 @@ def get_download_status():
     # Add history of completed downloads
     history = []
     for i, download in enumerate(download_history[:10]):  # Show only last 10
-        history.append({
-            "id": download.get("id", f"hist_{i}"),
-            "name": download.get("name", "Unknown"),
-            "appid": download.get("appid", "Unknown"),
-            "status": download.get("status", "Unknown"),
-            "duration": download.get("duration", "Unknown"),
-            "end_time": download.get("end_time", datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-        })
+        history.append([
+            download.get("id", f"hist_{i}")[:8],  # Shorten ID
+            download.get("name", "Unknown"),
+            download.get("status", "Unknown"),
+            download.get("duration", "Unknown"),
+            download.get("end_time", datetime.now()).strftime("%Y-%m-%d %H:%M:%S") if isinstance(download.get("end_time"), datetime) else "Unknown"
+        ])
     
     return {
         "active": active,
@@ -1340,9 +1339,18 @@ def create_downloads_tab():
             
             with gr.Column(scale=1):
                 gr.Markdown("### System Status")
+                # Instead of creating the dataframe first and then updating it,
+                # provide the initial value directly when creating it
+                initial_stats = [
+                    ["CPU Usage", f"{psutil.cpu_percent()}%"],
+                    ["Memory Usage", f"{psutil.virtual_memory().percent}%"],
+                    ["Disk Usage", f"{psutil.disk_usage('/').percent}%"],
+                    ["Active Downloads", str(len(active_downloads))],
+                    ["Queued Downloads", str(len(download_queue))]
+                ]
                 system_stats = gr.Dataframe(
                     headers=["Metric", "Value"],
-                    value=get_system_stats(),  # Use function to get initial values
+                    value=initial_stats,  # Set initial value here
                     interactive=False,
                     wrap=True
                 )
