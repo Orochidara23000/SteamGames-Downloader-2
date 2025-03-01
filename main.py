@@ -347,17 +347,92 @@ def verify_installation(appid, install_path):
 
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
     try:
-        # Your logic to start the download
-        if not game_input:
-            return "Please enter a valid game ID or URL."
+        # Step 1: Parse the game input to extract the AppID
+        appid = parse_game_input(game_input)  # Implement this function to extract AppID
+        if not appid:
+            return "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
         
-        # Simulate download process
-        download_id = "12345"  # Example download ID
-        return f"Download started for game ID: {download_id}."
+        # Step 2: Validate the AppID
+        is_valid, game_info = validate_appid(appid)
+        if not is_valid:
+            return f"Invalid AppID: {appid}. Error: {game_info}"
+        
+        # Step 3: Update the active_downloads dictionary
+        download_id = f"download_{appid}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        active_downloads[download_id] = {
+            "appid": appid,
+            "name": game_info.get('name', 'Unknown Game'),
+            "progress": 0,
+            "status": "Initializing",
+            "start_time": datetime.now(),
+            "eta": "Unknown",
+            "speed": "0 KB/s",
+            "size_downloaded": "0 MB",
+            "total_size": game_info.get('size_mb', 'Unknown'),
+        }
+        
+        # Step 4: Launch a background thread to handle the download process
+        download_thread = threading.Thread(target=handle_download, args=(download_id, username, password, guard_code, anonymous, appid, game_info, validate_download))
+        download_thread.start()
+        
+        return f"Download started for {game_info['name']} (AppID: {appid})."
     
     except Exception as e:
-        logging.error(f"Error during download: {str(e)}")
+        logging.error(f"Error during download process: {str(e)}")
         return f"Error: {str(e)}"
+
+def handle_download(download_id, username, password, guard_code, anonymous, appid, game_info, validate_download):
+    try:
+        # Prepare the download command
+        install_dir = get_default_download_location()  # Implement this function to get the download path
+        sanitized_name = re.sub(r'[^\w\-\.]', '_', game_info['name'])
+        full_install_dir = os.path.join(install_dir, sanitized_name)
+
+        # Create the install directory if it doesn't exist
+        os.makedirs(full_install_dir, exist_ok=True)
+
+        # Prepare the SteamCMD command
+        cmd = ["/app/steamcmd/steamcmd.sh"]  # Adjust the path as necessary
+        if anonymous:
+            cmd.extend(["+login", "anonymous"])
+        else:
+            cmd.extend(["+login", username, password])
+            if guard_code:
+                cmd.append(guard_code)
+
+        cmd.extend([
+            "+force_install_dir", full_install_dir,
+            "+app_update", appid
+        ])
+        
+        if validate_download:
+            cmd.append("validate")
+        
+        cmd.append("+quit")
+
+        # Start the download process
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        
+        # Monitor the download process
+        for line in process.stdout:
+            logging.info(line.strip())
+            # Here you can parse the output to update progress, speed, etc.
+            # For example, you might want to call a function to parse progress
+            parse_progress(line.strip(), download_id)  # Implement this function to update active_downloads
+
+        process.wait()  # Wait for the process to complete
+        exit_code = process.returncode
+        
+        if exit_code == 0:
+            active_downloads[download_id]["status"] = "Completed"
+            logging.info(f"Download for App ID {appid} completed successfully.")
+        else:
+            active_downloads[download_id]["status"] = f"Failed (Code {exit_code})"
+            logging.error(f"Download failed with exit code {exit_code}.")
+    
+    except Exception as e:
+        logging.error(f"Error during download handling: {str(e)}")
+        active_downloads[download_id]["status"] = f"Error: {str(e)}"
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
