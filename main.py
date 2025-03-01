@@ -1217,36 +1217,26 @@ def create_download_games_tab():
             
             try:
                 appid = str(appid).strip()
-                logger.info(f"Checking status for game with AppID: {appid}")
-                
                 # Check if the game is installed
                 installed = is_game_installed(appid)
-                logger.info(f"Game installation status: {installed}")
-                
-                # Get game info
                 game_info = get_game_info(appid)
                 game_name = game_info.get('name', 'Unknown')
-                logger.info(f"Game name: {game_name}")
                 
                 if installed:
-                    try:
-                        size = get_game_size(appid)
-                        size_str = format_size(size) if size > 0 else "Unknown size"
-                        return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
-                    except Exception as e:
-                        logger.error(f"Error getting game size: {e}")
-                        return f"Game '{game_name}' (AppID: {appid}) is installed, but couldn't determine size: {str(e)}"
+                    size = get_game_size(appid)
+                    size_str = format_size(size) if size > 0 else "Unknown size"
+                    return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
                 else:
                     return f"Game '{game_name}' (AppID: {appid}) is not installed."
             except Exception as e:
                 logger.error(f"Error checking game status: {e}")
                 return f"Error checking game status: {str(e)}"
         
-        # Connect the check game button to its handler
+        # Connect the check game button - make sure outputs match what's expected
         check_game_btn.click(
             fn=check_game_status,
             inputs=[game_input],
-            outputs=[game_title, game_description, game_metadata, game_image, download_status]
+            outputs=[download_status]  # Only include the one output we're returning
         )
         
         download_btn.click(
