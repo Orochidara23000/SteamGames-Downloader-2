@@ -1252,53 +1252,40 @@ def create_download_games_tab():
                 appid = extract_appid_from_input(input_text)
                 logger.info(f"Extracted AppID: {appid} from input: {input_text}")
                 
-                # Use a timeout context to prevent hanging
-                import signal
+                # First, check with the validate_appid function which is more reliable
+                # This already has a timeout of 5 seconds in the requests.get() call
+                is_valid, game_info = validate_appid(appid)
                 
-                def timeout_handler(signum, frame):
-                    raise TimeoutError("Operation timed out")
+                if not is_valid:
+                    logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
+                    return f"Error: {game_info}"
                 
-                # Set a 10-second timeout for the entire operation
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(10)
+                # If we get here, game is valid
+                game_name = game_info.get('name', f"App {appid}")
+                is_free = game_info.get('is_free', False)
+                description = game_info.get('description', 'No description available')
                 
+                # Check if game is installed - with a simple try/except
+                installed = False
                 try:
-                    # First, check with the validate_appid function which is more reliable
-                    is_valid, game_info = validate_appid(appid)
-                    
-                    if not is_valid:
-                        logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
-                        return f"Error: {game_info}"
-                    
-                    # If we get here, game is valid
-                    game_name = game_info.get('name', f"App {appid}")
-                    is_free = game_info.get('is_free', False)
-                    description = game_info.get('description', 'No description available')
-                    
-                    # Check if game is installed - skip if taking too long
-                    installed = False
-                    try:
-                        installed = is_game_installed(appid)
-                    except Exception as e:
-                        logger.warning(f"Error checking if game is installed: {e}")
-                        # Continue anyway
-                    
-                    # Format a more complete response
-                    result = f"### Game: {game_name}\n"
-                    result += f"AppID: {appid}\n"
-                    result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
-                    result += f"Installed: {'Yes' if installed else 'No'}\n"
-                    result += f"\nDescription: {description}"
-                    
-                    logger.info(f"Successfully retrieved info for game: {game_name}")
-                    return result
-                finally:
-                    # Cancel the timeout
-                    signal.alarm(0)
-                    
-            except TimeoutError:
-                logger.error(f"Operation timed out while checking game status for: {input_text}")
-                return "Error: Operation timed out while checking game status. Steam API may be unavailable."
+                    installed = is_game_installed(appid)
+                except Exception as e:
+                    logger.warning(f"Error checking if game is installed: {e}")
+                    # Continue anyway
+                
+                # Format a more complete response
+                result = f"### Game: {game_name}\n"
+                result += f"AppID: {appid}\n"
+                result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
+                result += f"Installed: {'Yes' if installed else 'No'}\n"
+                result += f"\nDescription: {description}"
+                
+                logger.info(f"Successfully retrieved info for game: {game_name}")
+                return result
+            
+            except requests.exceptions.Timeout:
+                logger.error(f"Timeout while checking game status for: {input_text}")
+                return "Error: Request timed out while checking game status. Steam API may be unavailable."
             except Exception as e:
                 logger.error(f"Error checking game status: {e}", exc_info=True)
                 return f"Error checking game status: {str(e)}"
