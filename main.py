@@ -1144,6 +1144,14 @@ def create_download_games_tab():
             with gr.Column(scale=1):
                 check_game_btn = gr.Button("Check Game", variant="secondary")
         
+        # Define check_game_result BEFORE using it in any event handlers
+        check_game_result = gr.Textbox(
+            label="Game Status",
+            placeholder="Game status will appear here",
+            lines=6,  # More space for detailed status
+            interactive=False
+        )
+        
         # Game details display
         with gr.Row(visible=False) as game_details_row:
             with gr.Column(scale=1):
@@ -1528,7 +1536,7 @@ def create_gradio_interface():
                         )
             
             # Call the create_download_games_tab function here
-            game_input, check_game_btn, download_btn, download_status = create_download_games_tab()
+            game_input, check_game_btn, download_btn, check_game_result = create_download_games_tab()
             
             # Downloads tab (now returns None, None)
             _ = create_downloads_tab()
