@@ -1,13 +1,14 @@
 FROM python:3.9-slim
 
-# Install required system dependencies and locales
-RUN apt-get update && \
+# Add i386 architecture support and install required system dependencies and locales
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
     apt-get install -y \
-    lib32gcc1 \
-    lib32stdc++6 \
-    curl \
-    libcurl4 \
-    locales && \
+        lib32gcc1 \
+        lib32stdc++6 \
+        curl \
+        libcurl4 \
+        locales && \
     locale-gen en_US.UTF-8 && \
     rm -rf /var/lib/apt/lists/*
 
