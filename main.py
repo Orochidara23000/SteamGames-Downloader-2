@@ -1242,46 +1242,9 @@ def create_download_games_tab():
                 # Get game info from Steam API
                 game_info = get_game_info(appid)
                 game_name = game_info.get('name', f"App {appid}")
-        
-        # Toggle login details visibility based on anonymous checkbox
-        def toggle_login_fields(anonymous):
-            return gr.update(visible=not anonymous)
-        
-        anonymous.change(
-            fn=toggle_login_fields,
-            inputs=[anonymous],
-            outputs=[login_details]
-        )
-        
-        # Define the check game status function to return only what's needed
-        def check_game_status(appid):
-            """Check if a game is installed and return its status"""
-            if not appid:
-                return "Please enter a valid App ID"
-            
-            try:
-                appid = str(appid).strip()
-                logger.info(f"Checking status for game with AppID: {appid}")
                 
-                # Get game info first (this should work even if not installed)
-                game_info = get_game_info(appid)
-                game_name = game_info.get('name', f"App {appid}")
-                logger.info(f"Game name from info: {game_name}")
-                
-                # Check if installed (this function now logs detailed info)
-                installed = is_game_installed(appid)
-                logger.info(f"Is game installed: {installed}")
-                
-                if installed:
-                    try:
-                        size = get_game_size(appid)
-                        size_str = format_size(size) if size > 0 else "Unknown size"
-                        return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
-                    except Exception as e:
-                        logger.error(f"Error getting game size: {e}")
-                        return f"Game '{game_name}' (AppID: {appid}) is installed, but couldn't determine size."
-                else:
-                    return f"Game '{game_name}' (AppID: {appid}) is not installed."
+                # Rest of your function code here
+                return f"Game info: {game_name} (AppID: {appid})"
             except Exception as e:
                 logger.error(f"Error checking game status: {e}")
                 return f"Error checking game status: {str(e)}"
