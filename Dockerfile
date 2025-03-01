@@ -4,7 +4,7 @@ FROM python:3.9-slim
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
     apt-get install -y \
-        lib32gcc1 \
+        lib32gcc-s1 \
         lib32stdc++6 \
         curl \
         libcurl4 \
