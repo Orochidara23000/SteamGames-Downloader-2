@@ -349,6 +349,7 @@ def verify_installation(appid, install_path):
         return False
 
 def validate_steam_credentials(username, password, guard_code=""):
+    """Validate Steam credentials using SteamCMD."""
     steamcmd_path = get_steamcmd_path()
     cmd = [steamcmd_path, '+quit']
     
@@ -383,6 +384,7 @@ def download_game(username, password, guard_code, anonymous, appid, validate=Tru
     install_path = get_default_download_location()
     
     try:
+        # Validate credentials first for non-anonymous
         if not anonymous:
             valid, msg = validate_steam_credentials(username, password, guard_code)
             if not valid:
@@ -401,6 +403,23 @@ def download_game(username, password, guard_code, anonymous, appid, validate=Tru
             '+quit'
         ]
 
+        # Add to active downloads
+        with queue_lock:
+            active_downloads[download_id] = {
+                "appid": appid,
+                "name": "Unknown",
+                "progress": 0.0,
+                "status": "Starting",
+                "start_time": datetime.now(),
+                "process": None,
+                "eta": "N/A",
+                "speed": "N/A"
+            }
+
+        # Get game name for display
+        _, game_info = validate_appid(appid)
+        active_downloads[download_id]["name"] = game_info.get('name', 'Unknown')
+
         # Start download process
         process = subprocess.Popen(
             cmd,
@@ -408,15 +427,58 @@ def download_game(username, password, guard_code, anonymous, appid, validate=Tru
             stderr=subprocess.STDOUT,
             text=True
         )
+        active_downloads[download_id]["process"] = process
+        active_downloads[download_id]["status"] = "Downloading"
+
         # Process output in real-time
         for line in iter(process.stdout.readline, ''):
-            # Update progress and handle errors
-            ...
+            line = line.strip()
+            if not line:
+                continue
+
+            # Update progress
+            progress_data = parse_progress(line)
+            if 'progress' in progress_data:
+                active_downloads[download_id]["progress"] = progress_data['progress']
+            if 'eta' in progress_data:
+                active_downloads[download_id]["eta"] = progress_data['eta']
+            if 'speed' in progress_data:
+                active_downloads[download_id]["speed"] = f"{progress_data['speed']} {progress_data['speed_unit']}/s"
+
+            # Check for errors
+            if any(err in line.lower() for err in ["error", "failed", "failure"]):
+                raise Exception(f"SteamCMD error: {line}")
+
         process.wait()
-        ...
+        
+        if process.returncode != 0:
+            raise Exception(f"Download failed with exit code {process.returncode}")
+
+        # Validate if requested
+        if validate:
+            active_downloads[download_id]["status"] = "Validating"
+            if not verify_installation(appid, install_path):
+                raise Exception("Validation failed")
+
+        active_downloads[download_id]["status"] = "Completed"
+
     except Exception as e:
         logging.error(f"Download failed: {str(e)}")
-        ...
+        if download_id in active_downloads:
+            active_downloads[download_id]["status"] = f"Failed: {str(e)}"
+        
+    finally:
+        # Cleanup after completion/failure
+        with queue_lock:
+            if download_id in active_downloads:
+                # Keep failed downloads for 5 minutes before auto-removal
+                if "Failed" in active_downloads[download_id]["status"]:
+                    threading.Timer(300, lambda: active_downloads.pop(download_id, None)).start()
+                else:
+                    active_downloads.pop(download_id, None)
+        
+        # Process next in queue
+        process_download_queue()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
