@@ -1,31 +1,12 @@
-# Use official Alpine base image
-FROM alpine:3.18
+FROM python:3.9-slim
 
-# Install required system dependencies with community repository
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update && \
-    apk add --no-cache \
-        wget \
-        tar \
-        gzip \
-        libgcc \
-        libstdc++ \
-        ca-certificates && \
-    # Create directory structure
-    mkdir -p /steam/downloads && \
-    mkdir -p /home/steamuser && \
-    # Set ownership before symlink
-    chown -R 1000:1000 /steam && \
-    chown -R 1000:1000 /home/steamuser && \
-    # Create symbolic link
-    ln -s /steam /home/steamuser/steam && \
-    # Download and extract SteamCMD
-    wget -O /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && \
-    tar -xvzf /tmp/steamcmd.tar.gz -C /steam && \
-    # Cleanup
-    rm /tmp/steamcmd.tar.gz && \
-    # Fix permissions
-    chmod -R 755 /steam
+# Install required system dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    lib32gcc-s1 \
+    curl \
+    libcurl4 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -41,7 +22,7 @@ COPY . .
 RUN chmod +x entrypoint.sh
 
 # Create directories for volumes
-RUN mkdir -p /data/downloads /app/logs
+RUN mkdir -p /data/downloads /app/steamcmd /app/logs
 
 # Set environment variables
 ENV STEAM_DOWNLOAD_PATH=/data/downloads
