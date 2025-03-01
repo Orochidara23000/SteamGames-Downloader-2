@@ -791,7 +791,42 @@ def create_download_games_tab():
         # Function to update UI when game is checked
         def check_game(game_id):
             details = get_game_details(game_id)
-            # ... (rest of the function implementation)
+            
+            if not details["success"]:
+                return (
+                    gr.update(visible=False),  # Hide game details row
+                    "",  # Game title
+                    "",  # Game description
+                    [],  # Game metadata
+                    None,  # Game image
+                    f"Error: {details['error']}"  # Download status
+                )
+            
+            game_info = details["game_info"]
+            
+            # Format metadata for display
+            metadata = [
+                ["App ID", details["appid"]],
+                ["Free Game", "Yes" if game_info.get("is_free", False) else "No"],
+                ["Release Date", game_info.get("release_date", "Unknown")],
+                ["Developer", ", ".join(game_info.get("developers", ["Unknown"]))],
+                ["Publisher", ", ".join(game_info.get("publishers", ["Unknown"]))],
+                ["Genres", ", ".join(game_info.get("genres", ["Unknown"]))],
+                ["Metacritic", game_info.get("metacritic", "N/A")],
+                ["Platforms", ", ".join([p for p, v in game_info.get("platforms", {}).items() if v])]
+            ]
+            
+            # Get image URL or use placeholder
+            image_url = game_info.get("header_image", None)
+            
+            return (
+                gr.update(visible=True),  # Show game details row
+                game_info.get("name", "Unknown Game"),  # Game title
+                game_info.get("description", "No description available"),  # Game description
+                metadata,  # Game metadata
+                image_url,  # Game image
+                f"Game found: {game_info.get('name', 'Unknown Game')} (AppID: {details['appid']})"  # Download status
+            )
         
         # Connect events
         check_game_btn.click(
@@ -1182,12 +1217,12 @@ def get_downloads_status():
         # Prepare system statistics data
         system_data = [
             ["CPU Usage", f"{status['system']['cpu_usage']}%"],
-            ["Memory Usage", f"{status['system']['memory_usage']}%"],
-            ["Disk Usage", f"{status['system']['disk_usage']}%"],
-            ["Active Downloads", str(len(status["active"]))],
-            ["Queued Downloads", str(len(status["queue"]))],
-            ["System Uptime", status['system']['uptime']]
-        ]
+             ["Memory Usage", f"{status['system']['memory_usage']}%"],
+             ["Disk Usage", f"{status['system']['disk_usage']}%"],
+             ["Active Downloads", str(len(status["active"]))],
+             ["Queued Downloads", str(len(status["queue"]))],
+             ["System Uptime", status['system']['uptime']]
+            ]
         
         return active_data, queue_data, system_data
     
