@@ -1211,6 +1211,49 @@ def create_download_games_tab():
         )
         
         # Define the check game status function to return only what's needed
+        def extract_appid_from_input(input_text):
+            """Extract the AppID from various input formats including URLs"""
+            try:
+                # If it's a URL, extract the app ID from it
+                url_match = re.search(r'app/(\d+)', input_text)
+                if url_match:
+                    return url_match.group(1)
+            
+                # Extract any numeric sequence that looks like an app ID
+                numeric_match = re.search(r'(\d+)', input_text)
+                if numeric_match:
+                    return numeric_match.group(1)
+            
+                return input_text.strip()
+            except Exception as e:
+                logger.error(f"Error extracting App ID: {e}")
+                return input_text.strip()
+
+        def check_game_status(input_text):
+            """Check if a game is installed and return its status"""
+            if not input_text:
+                return "Please enter a valid App ID or game URL"
+            
+            try:
+                # Extract AppID from input (URL or text)
+                appid = extract_appid_from_input(input_text)
+                logger.info(f"Extracted AppID: {appid} from input: {input_text}")
+                
+                # Get game info from Steam API
+                game_info = get_game_info(appid)
+                game_name = game_info.get('name', f"App {appid}")
+        
+        # Toggle login details visibility based on anonymous checkbox
+        def toggle_login_fields(anonymous):
+            return gr.update(visible=not anonymous)
+        
+        anonymous.change(
+            fn=toggle_login_fields,
+            inputs=[anonymous],
+            outputs=[login_details]
+        )
+        
+        # Define the check game status function to return only what's needed
         def check_game_status(appid):
             """Check if a game is installed and return its status"""
             if not appid:
@@ -1250,16 +1293,16 @@ def create_download_games_tab():
         check_game_btn.click(
             fn=check_game_status,
             inputs=[game_input],
-            outputs=[download_status]
+            outputs=[check_game_result]
         )
         
         download_btn.click(
             fn=queue_download,  # Call the queue_download function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
-            outputs=[download_status]
+            outputs=[check_game_result]
         )
         
-        return game_input, check_game_btn, download_btn, download_status
+        return game_input, check_game_btn, download_btn, check_game_result
 
 def create_downloads_tab():
     """Create the 'Downloads' tab in the Gradio interface with real-time logs instead of tabular data."""
