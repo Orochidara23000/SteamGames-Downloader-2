@@ -1213,7 +1213,9 @@ def create_download_games_tab():
         def check_game_status(appid):
             """Check if a game is installed and return its status"""
             if not appid:
-                return "Please enter a valid App ID"
+                result = "Please enter a valid App ID"
+                # Return placeholder values for all 5 outputs
+                return result, None, None, None, None
             
             try:
                 appid = str(appid).strip()
@@ -1225,12 +1227,17 @@ def create_download_games_tab():
                 if installed:
                     size = get_game_size(appid)
                     size_str = format_size(size) if size > 0 else "Unknown size"
-                    return f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
+                    result = f"Game '{game_name}' (AppID: {appid}) is installed. Size: {size_str}"
                 else:
-                    return f"Game '{game_name}' (AppID: {appid}) is not installed."
+                    result = f"Game '{game_name}' (AppID: {appid}) is not installed."
+                
+                # Return the result and placeholders for the other 4 outputs
+                return result, None, None, None, None
             except Exception as e:
                 logger.error(f"Error checking game status: {e}")
-                return f"Error checking game status: {str(e)}"
+                result = f"Error checking game status: {str(e)}"
+                # Return the error and placeholders for the other 4 outputs
+                return result, None, None, None, None
         
         # Connect the check game button - make sure outputs match what's expected
         check_game_btn.click(
@@ -1240,12 +1247,6 @@ def create_download_games_tab():
         )
         
         download_btn.click(
-            fn=download_game,  # Call the download_game function
-            inputs=[username, password, guard_code, anonymous, game_input, validate_download],
-            outputs=[download_status]  # Output to the download_status component
-        )
-        
-        queue_btn.click(
             fn=queue_download,  # Call the queue_download function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
