@@ -519,6 +519,29 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     
     logger.info(f"Download path: {download_path}")
     
+    # Check for special case free-to-play games that need additional parameters
+    special_f2p_games = {
+        "230410": {  # Warframe
+            "name": "Warframe",
+            "app_id": "230410",
+            "depot_id": "230411",  # This is the actual content depot
+            "needs_license": True
+        },
+        "570": {  # Dota 2
+            "name": "Dota 2",
+            "app_id": "570",
+            "depot_id": "571",
+            "needs_license": True
+        },
+        "440": {  # Team Fortress 2
+            "name": "Team Fortress 2",
+            "app_id": "440",
+            "depot_id": "441",
+            "needs_license": True
+        }
+        # Add more special cases as needed
+    }
+    
     # Prepare SteamCMD command
     cmd_args = [get_steamcmd_path()]
     
@@ -530,11 +553,35 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             # Steam Guard code needs special handling in the command
             cmd_args[-1] = f"{password} {guard_code}"
     
-    cmd_args.extend([
-        "+force_install_dir", download_path,
-        "+app_update", appid, 
-        "+quit"
-    ])
+    # Check if we need special handling for this game
+    if appid in special_f2p_games:
+        logger.info(f"Using special handling for free-to-play game: {game_name}")
+        special_game = special_f2p_games[appid]
+        
+        # For games requiring a license but downloadable with anonymous access
+        if special_game["needs_license"] and anonymous:
+            # Use the app_update command with special parameters
+            cmd_args.extend([
+                "+force_install_dir", download_path,
+                "+app_update", special_game["app_id"], 
+                "+app_license_request", special_game["app_id"],
+                "+app_update", special_game["app_id"], "validate",
+                "+quit"
+            ])
+        else:
+            # Regular update for special games
+            cmd_args.extend([
+                "+force_install_dir", download_path,
+                "+app_update", special_game["app_id"],
+                "+quit"
+            ])
+    else:
+        # Regular games
+        cmd_args.extend([
+            "+force_install_dir", download_path,
+            "+app_update", appid, 
+            "+quit"
+        ])
     
     # Add to active downloads with initial status
     with queue_lock:
