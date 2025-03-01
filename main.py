@@ -294,12 +294,15 @@ def parse_progress(line):
 
 def process_download_queue():
     with queue_lock:
-        if download_queue and len(active_downloads) == 0:
+        while download_queue and len(active_downloads) < 1:  # Max 1 concurrent download
             next_download = download_queue.pop(0)
-            thread = threading.Thread(target=next_download["function"], args=next_download["args"])
+            thread = threading.Thread(
+                target=download_game,
+                args=next_download["args"]
+            )
             thread.daemon = True
             thread.start()
-            logging.info(f"Started new download thread. Remaining in queue: {len(download_queue)}")
+            logging.info(f"Started download thread. Queue remaining: {len(download_queue)}")
 
 def verify_installation(appid, install_path):
     logging.info(f"Verifying installation for App ID: {appid} at path: {install_path}")
@@ -345,57 +348,83 @@ def verify_installation(appid, install_path):
         logging.error(f"Error during verification of App ID {appid}: {str(e)}")
         return False
 
-def verify_credentials(username, password):
-    if not username or not password:
-        logging.error("Missing credentials for non-anonymous download.")
-        return False, "Username and password are required."
-    if username == "invalid" or password == "invalid":
-        logging.error("Invalid credentials provided.")
-        return False, "Invalid credentials provided."
-    return True, "Credentials are valid."
-
-def download_game(username, password, guard_code, anonymous, game_input, validate_download):
-    try:
-        if not game_input:
-            return "Please enter a valid game ID or URL."
-        
-        if not anonymous:
-            valid, message = verify_credentials(username, password)
-            if not valid:
-                cleanup_download(game_input)
-                return f"Error: {message}"
-        
-        download_id = f"dl_{int(time.time())}"
-        active_downloads[download_id] = {
-            "name": game_input,
-            "appid": game_input,
-            "progress": 0,
-            "status": "Starting",
-            "start_time": datetime.now()
-        }
-        logging.info(f"Download started for game ID: {download_id}")
-        
-        # Simulate download process here...
-        # ... (download code)
-        
-        active_downloads[download_id]["status"] = "Completed"
-        del active_downloads[download_id]
-        process_download_queue()
-        return f"Download completed for game ID: {download_id}."
+def validate_steam_credentials(username, password, guard_code=""):
+    steamcmd_path = get_steamcmd_path()
+    cmd = [steamcmd_path, '+quit']
     
+    if guard_code:
+        cmd = [steamcmd_path, '+login', username, password, guard_code, '+quit']
+    elif username and password:
+        cmd = [steamcmd_path, '+login', username, password, '+quit']
+    
+    try:
+        process = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30
+        )
+        output = process.stdout.lower()
+        
+        if "login failure" in output:
+            return False, "Invalid credentials"
+        if "two-factor code" in output:
+            return False, "Steam Guard code required"
+        return True, "Login successful"
+    
+    except subprocess.TimeoutExpired:
+        return False, "Login timed out"
     except Exception as e:
-        logging.error(f"Error during download: {str(e)}")
-        cleanup_download(game_input)
-        return f"Download failed: {str(e)}"
+        return False, f"Login error: {str(e)}"
+
+def download_game(username, password, guard_code, anonymous, appid, validate=True):
+    download_id = str(int(time.time()))
+    install_path = get_default_download_location()
+    
+    try:
+        if not anonymous:
+            valid, msg = validate_steam_credentials(username, password, guard_code)
+            if not valid:
+                raise Exception(f"Login failed: {msg}")
+
+        # Prepare SteamCMD command
+        cmd = [get_steamcmd_path()]
+        if anonymous:
+            cmd += ['+login', 'anonymous']
+        else:
+            cmd += ['+login', username, password]
+        
+        cmd += [
+            '+force_install_dir', install_path,
+            '+app_update', appid,
+            '+quit'
+        ]
+
+        # Start download process
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        # Process output in real-time
+        for line in iter(process.stdout.readline, ''):
+            # Update progress and handle errors
+            ...
+        process.wait()
+        ...
+    except Exception as e:
+        logging.error(f"Download failed: {str(e)}")
+        ...
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
     
-    if not anonymous:
-        valid, message = verify_credentials(username, password)
-        if not valid:
-            logging.error(message)
-            return message
+    if not anonymous and (not username or not password):
+        error_msg = "Error: Username and password are required for non-anonymous downloads."
+        logging.error(error_msg)
+        return error_msg
     
     appid = parse_game_input(game_input)
     if not appid:
@@ -403,14 +432,17 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logging.error(error_msg)
         return error_msg
     
+    # Validate the AppID
     is_valid, game_info = validate_appid(appid)
     if not is_valid:
         error_msg = f"Invalid AppID: {appid}. Error: {game_info}"
         logging.error(error_msg)
         return error_msg
     
+    # Check if we can start a new download immediately or need to queue
     with queue_lock:
         if len(active_downloads) == 0:
+            # Start download immediately
             thread = threading.Thread(
                 target=download_game,
                 args=(username, password, guard_code, anonymous, appid, validate)
@@ -419,6 +451,7 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             thread.start()
             return f"Started download for {game_info.get('name', 'Unknown Game')} (AppID: {appid})"
         else:
+            # Add to queue
             download_queue.append({
                 "function": download_game,
                 "args": (username, password, guard_code, anonymous, appid, validate)
@@ -1048,14 +1081,18 @@ def get_downloads_status():
         # Return empty data in case of error
         return [], [], []
 
-def cleanup_download(game_input):
-    keys_to_remove = [key for key, info in active_downloads.items() if info.get("appid") == game_input]
-    for key in keys_to_remove:
-        logging.info(f"Cleaning up active download: {key}")
-        del active_downloads[key]
-    with queue_lock:
-        download_queue[:] = [item for item in download_queue if item["args"][4] != game_input]
-    process_download_queue()
+def cleanup_failed_downloads():
+    while True:
+        current_time = datetime.now()
+        to_remove = []
+        with queue_lock:
+            for d_id, download in active_downloads.items():
+                if "Failed" in download["status"]:
+                    if current_time - download["start_time"] > timedelta(minutes=5):
+                        to_remove.append(d_id)
+            for d_id in to_remove:
+                active_downloads.pop(d_id, None)
+        time.sleep(60)
 
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
