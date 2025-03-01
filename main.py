@@ -884,6 +884,7 @@ def create_downloads_tab():
         # Function to update download status in the UI
         def update_downloads_status():
             try:
+                # Fetch the latest download status
                 status = get_download_status()
                 
                 # Format active downloads for table display
@@ -920,17 +921,13 @@ def create_downloads_tab():
                     ["System Uptime", status['system']['uptime']]
                 ]
                 
-                # Update the tables with new data
-                active_downloads_table.value = active_data
-                queue_table.value = queue_data
-                system_stats.value = system_data
-                
+                # Return the data as outputs for the three tables/components
+                return active_data, queue_data, system_data
+            
             except Exception as e:
                 logging.error(f"Error updating download status: {str(e)}")
-                # Optionally, you can reset the tables to empty or show an error message
-                active_downloads_table.value = []
-                queue_table.value = []
-                system_stats.value = []
+                # Return empty lists for all outputs if there's an error
+                return [], [], []
         
         # Connect events for refreshing data
         refresh_btn.click(
