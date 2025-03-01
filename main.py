@@ -1224,6 +1224,7 @@ def create_downloads_tab():
         with gr.Row():
             refresh_btn = gr.Button("Refresh Status")
             auto_refresh = gr.Checkbox(label="Auto-refresh (10s)", value=False)
+            refresh_status = gr.Textbox(label="Refresh Status", interactive=False)
         
         # Function to update download status in the UI
         def update_downloads_status():
@@ -1332,7 +1333,7 @@ def create_downloads_tab():
         auto_refresh.change(
             fn=toggle_auto_refresh,
             inputs=[auto_refresh],
-            outputs=[download_status]
+            outputs=[refresh_status]
         )
         
     return refresh_btn, auto_refresh
