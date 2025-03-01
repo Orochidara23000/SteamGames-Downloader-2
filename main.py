@@ -269,7 +269,9 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
         url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
         logger.info(f"Querying Steam API: {url}")
         
-        response = requests.get(url, timeout=10)
+        # Add a shorter timeout to prevent hanging
+        response = requests.get(url, timeout=5)
+        logger.info(f"Received response from Steam API with status: {response.status_code}")
         
         if not response.ok:
             logger.error(f"Steam API request failed with status: {response.status_code}")
@@ -310,7 +312,10 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
         
     except requests.exceptions.Timeout:
         logger.error(f"Timeout while validating App ID {appid}")
-        return False, "Timeout while connecting to Steam API"
+        return False, "Timeout while connecting to Steam API. Please try again later."
+    except requests.exceptions.ConnectionError:
+        logger.error(f"Connection error while validating App ID {appid}")
+        return False, "Connection error when contacting Steam API. Please check your internet connection."
     except requests.exceptions.RequestException as e:
         logger.error(f"Request error while validating App ID {appid}: {str(e)}")
         return False, f"Request error: {str(e)}"
@@ -318,7 +323,7 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
         logger.error(f"Invalid JSON response from Steam API for App ID {appid}")
         return False, "Invalid response from Steam API"
     except Exception as e:
-        logger.error(f"Validation error for App ID {appid}: {str(e)}")
+        logger.error(f"Validation error for App ID {appid}: {str(e)}", exc_info=True)
         return False, f"Validation error: {str(e)}"
 
 # ========================
@@ -1247,35 +1252,53 @@ def create_download_games_tab():
                 appid = extract_appid_from_input(input_text)
                 logger.info(f"Extracted AppID: {appid} from input: {input_text}")
                 
-                # First, check with the validate_appid function which is more reliable
-                is_valid, game_info = validate_appid(appid)
+                # Use a timeout context to prevent hanging
+                import signal
                 
-                if not is_valid:
-                    logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
-                    return f"Error: {game_info}"
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Operation timed out")
                 
-                # If we get here, game is valid
-                game_name = game_info.get('name', f"App {appid}")
-                is_free = game_info.get('is_free', False)
-                description = game_info.get('description', 'No description available')
+                # Set a 10-second timeout for the entire operation
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(10)
                 
-                # Check if game is installed
-                installed = False
                 try:
-                    installed = is_game_installed(appid)
-                except Exception as e:
-                    logger.warning(f"Error checking if game is installed: {e}")
-                    # Continue anyway
-                
-                # Format a more complete response
-                result = f"### Game: {game_name}\n"
-                result += f"AppID: {appid}\n"
-                result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
-                result += f"Installed: {'Yes' if installed else 'No'}\n"
-                result += f"\nDescription: {description}"
-                
-                logger.info(f"Successfully retrieved info for game: {game_name}")
-                return result
+                    # First, check with the validate_appid function which is more reliable
+                    is_valid, game_info = validate_appid(appid)
+                    
+                    if not is_valid:
+                        logger.warning(f"Invalid AppID: {appid}. Error: {game_info}")
+                        return f"Error: {game_info}"
+                    
+                    # If we get here, game is valid
+                    game_name = game_info.get('name', f"App {appid}")
+                    is_free = game_info.get('is_free', False)
+                    description = game_info.get('description', 'No description available')
+                    
+                    # Check if game is installed - skip if taking too long
+                    installed = False
+                    try:
+                        installed = is_game_installed(appid)
+                    except Exception as e:
+                        logger.warning(f"Error checking if game is installed: {e}")
+                        # Continue anyway
+                    
+                    # Format a more complete response
+                    result = f"### Game: {game_name}\n"
+                    result += f"AppID: {appid}\n"
+                    result += f"Free to Play: {'Yes' if is_free else 'No'}\n"
+                    result += f"Installed: {'Yes' if installed else 'No'}\n"
+                    result += f"\nDescription: {description}"
+                    
+                    logger.info(f"Successfully retrieved info for game: {game_name}")
+                    return result
+                finally:
+                    # Cancel the timeout
+                    signal.alarm(0)
+                    
+            except TimeoutError:
+                logger.error(f"Operation timed out while checking game status for: {input_text}")
+                return "Error: Operation timed out while checking game status. Steam API may be unavailable."
             except Exception as e:
                 logger.error(f"Error checking game status: {e}", exc_info=True)
                 return f"Error checking game status: {str(e)}"
