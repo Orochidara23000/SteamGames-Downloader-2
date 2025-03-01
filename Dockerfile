@@ -1,15 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.9-alpine
 
 # Install required system dependencies
-RUN apt-get update && \
-    apt-get install -y wget tar gzip && \
+RUN apk add --no-cache wget tar gzip && \
     mkdir -p /steam/downloads /home/steamuser && \
     chown -R 1000:1000 /steam && \
     ln -s /steam /home/steamuser/steam && \
-    wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz && \
-    tar -xvzf steamcmd_linux_old.tar.gz -C /steam && \
-    rm steamcmd_linux_old.tar.gz && \
-    apt-get purge -y wget && apt-get autoremove -y
+    wget -O steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux_old.tar.gz && \
+    tar -xvzf steamcmd.tar.gz -C /steam && \
+    rm steamcmd.tar.gz
 
 # Set working directory
 WORKDIR /app
