@@ -12,6 +12,11 @@ RUN apt-get update && \
 # Generate the locale
 RUN locale-gen en_US.UTF-8
 
+# Set the locale environment variables
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
 # Set working directory
 WORKDIR /app
 
@@ -31,9 +36,6 @@ RUN mkdir -p /data/downloads /app/steamcmd /app/logs
 # Set environment variables
 ENV STEAM_DOWNLOAD_PATH=/data/downloads
 ENV LOG_LEVEL=INFO
-ENV LANG=en_US.UTF-8
-ENV LANGUAGE=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
 
 # Run the entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]
