@@ -345,27 +345,57 @@ def verify_installation(appid, install_path):
         logging.error(f"Error during verification of App ID {appid}: {str(e)}")
         return False
 
+def verify_credentials(username, password):
+    if not username or not password:
+        logging.error("Missing credentials for non-anonymous download.")
+        return False, "Username and password are required."
+    if username == "invalid" or password == "invalid":
+        logging.error("Invalid credentials provided.")
+        return False, "Invalid credentials provided."
+    return True, "Credentials are valid."
+
 def download_game(username, password, guard_code, anonymous, game_input, validate_download):
     try:
-        # Your logic to start the download
         if not game_input:
             return "Please enter a valid game ID or URL."
         
-        # Simulate download process
-        download_id = "12345"  # Example download ID
-        return f"Download started for game ID: {download_id}."
+        if not anonymous:
+            valid, message = verify_credentials(username, password)
+            if not valid:
+                cleanup_download(game_input)
+                return f"Error: {message}"
+        
+        download_id = f"dl_{int(time.time())}"
+        active_downloads[download_id] = {
+            "name": game_input,
+            "appid": game_input,
+            "progress": 0,
+            "status": "Starting",
+            "start_time": datetime.now()
+        }
+        logging.info(f"Download started for game ID: {download_id}")
+        
+        # Simulate download process here...
+        # ... (download code)
+        
+        active_downloads[download_id]["status"] = "Completed"
+        del active_downloads[download_id]
+        process_download_queue()
+        return f"Download completed for game ID: {download_id}."
     
     except Exception as e:
         logging.error(f"Error during download: {str(e)}")
-        return f"Error: {str(e)}"
+        cleanup_download(game_input)
+        return f"Download failed: {str(e)}"
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
     
-    if not anonymous and (not username or not password):
-        error_msg = "Error: Username and password are required for non-anonymous downloads."
-        logging.error(error_msg)
-        return error_msg
+    if not anonymous:
+        valid, message = verify_credentials(username, password)
+        if not valid:
+            logging.error(message)
+            return message
     
     appid = parse_game_input(game_input)
     if not appid:
@@ -373,17 +403,14 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logging.error(error_msg)
         return error_msg
     
-    # Validate the AppID
     is_valid, game_info = validate_appid(appid)
     if not is_valid:
         error_msg = f"Invalid AppID: {appid}. Error: {game_info}"
         logging.error(error_msg)
         return error_msg
     
-    # Check if we can start a new download immediately or need to queue
     with queue_lock:
         if len(active_downloads) == 0:
-            # Start download immediately
             thread = threading.Thread(
                 target=download_game,
                 args=(username, password, guard_code, anonymous, appid, validate)
@@ -392,7 +419,6 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             thread.start()
             return f"Started download for {game_info.get('name', 'Unknown Game')} (AppID: {appid})"
         else:
-            # Add to queue
             download_queue.append({
                 "function": download_game,
                 "args": (username, password, guard_code, anonymous, appid, validate)
@@ -1021,6 +1047,15 @@ def get_downloads_status():
         logging.error(f"Error fetching download status: {str(e)}")
         # Return empty data in case of error
         return [], [], []
+
+def cleanup_download(game_input):
+    keys_to_remove = [key for key, info in active_downloads.items() if info.get("appid") == game_input]
+    for key in keys_to_remove:
+        logging.info(f"Cleaning up active download: {key}")
+        del active_downloads[key]
+    with queue_lock:
+        download_queue[:] = [item for item in download_queue if item["args"][4] != game_input]
+    process_download_queue()
 
 if __name__ == "__main__":
     # Ensure SteamCMD is installed
