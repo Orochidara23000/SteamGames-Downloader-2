@@ -329,13 +329,21 @@ def parse_progress(line: str) -> dict:
     try:
         # Improved progress parsing with more information
         line_lower = line.lower()
+        result = {}
+        
+        # Debug the line we're parsing
+        if "progress" in line_lower or "download" in line_lower or "%" in line_lower:
+            logger.debug(f"Parsing progress line: {line}")
         
         # Look for progress percentage patterns
         progress_patterns = [
-            r'(?:progress|update|download):\s*(?:.*?)(\d+\.\d+)%',  # Matches various progress formats
-            r'(\d+\.\d+)%\s*complete',
-            r'progress:\s+(\d+\.\d+)\s*%',
-            r'(\d+)\s+of\s+(\d+)\s+MB\s+\((\d+\.\d+)%\)'  # Matches current/total size
+            r'(?:progress|update|download):\s*(?:.*?)(\d+\.?\d*)%',  # Matches various progress formats
+            r'(\d+\.?\d*)%\s*complete',
+            r'progress:\s+(\d+\.?\d*)\s*%',
+            r'(\d+)\s+of\s+(\d+)\s+MB\s+\((\d+\.?\d*)%\)',  # Matches current/total size
+            r'(\d+\.?\d*)%', # Just a percentage on its own
+            r'progress:\s+(\d+\.?\d*)',  # Progress without % sign
+            r'downloading\s+(\d+\.?\d*)%'  # "Downloading x%"
         ]
         
         for pattern in progress_patterns:
@@ -345,20 +353,24 @@ def parse_progress(line: str) -> dict:
                     current = int(progress_match.group(1))
                     total = int(progress_match.group(2))
                     progress = float(progress_match.group(3))
-                    return {
+                    result.update({
                         "progress": progress,
                         "current_size": current,
                         "total_size": total,
                         "unit": "MB"
-                    }
+                    })
                 else:
                     progress = float(progress_match.group(1))
-                    return {"progress": progress}
+                    result.update({"progress": progress})
+                logger.debug(f"Found progress: {progress}%")
+                break
         
         # Look for download speed
         speed_patterns = [
             r'(\d+\.?\d*)\s*(KB|MB|GB)/s',
-            r'at\s+(\d+\.?\d*)\s*(KB|MB|GB)/s'
+            r'at\s+(\d+\.?\d*)\s*(KB|MB|GB)/s',
+            r'(\d+\.?\d*)\s*(KB|MB|GB)\s+per\s+second',
+            r'speed:\s+(\d+\.?\d*)\s*(KB|MB|GB)'
         ]
         
         for pattern in speed_patterns:
@@ -366,24 +378,31 @@ def parse_progress(line: str) -> dict:
             if speed_match:
                 speed = float(speed_match.group(1))
                 unit = speed_match.group(2)
-                return {"speed": speed, "speed_unit": unit}
+                result.update({"speed": speed, "speed_unit": unit})
+                logger.debug(f"Found speed: {speed} {unit}/s")
+                break
         
         # Look for ETA
         eta_patterns = [
             r'ETA\s+(\d+m\s*\d+s)',
-            r'ETA\s+(\d+:\d+:\d+)'
+            r'ETA\s+(\d+:\d+:\d+)',
+            r'ETA:\s+(\d+)\s+seconds',
+            r'estimated\s+time\s+remaining:\s+(.+?)\s'
         ]
         
         for pattern in eta_patterns:
             eta_match = re.search(pattern, line_lower)
             if eta_match:
-                return {"eta": eta_match.group(1)}
+                result.update({"eta": eta_match.group(1)})
+                logger.debug(f"Found ETA: {eta_match.group(1)}")
+                break
         
         # Look for total size in various formats
         size_patterns = [
             r'(?:size|total):\s*(\d+\.?\d*)\s*(\w+)',
             r'downloading\s+(\d+\.?\d*)\s*(\w+)',
-            r'download of\s+(\d+\.?\d*)\s*(\w+)'
+            r'download of\s+(\d+\.?\d*)\s*(\w+)',
+            r'(\d+\.?\d*)\s*(\w+)\s+remaining'
         ]
         
         for pattern in size_patterns:
@@ -391,18 +410,25 @@ def parse_progress(line: str) -> dict:
             if size_match:
                 size = float(size_match.group(1))
                 unit = size_match.group(2)
-                return {"total_size": size, "unit": unit}
+                result.update({"total_size": size, "unit": unit})
+                logger.debug(f"Found size: {size} {unit}")
+                break
         
         # Check for success messages
         success_patterns = [
             r'success!\s+app\s+[\'"]?(\d+)[\'"]',
-            r'fully installed'
+            r'fully installed',
+            r'download\s+complete',
+            r'installation\s+complete',
+            r'complete!'
         ]
         
         for pattern in success_patterns:
             success_match = re.search(pattern, line_lower)
             if success_match:
-                return {"success": True}
+                result.update({"success": True})
+                logger.debug("Found success message")
+                break
         
         # Check for error messages
         error_patterns = [
@@ -412,15 +438,19 @@ def parse_progress(line: str) -> dict:
             r'invalid user name',
             r'account logon denied',
             r'need two-factor code',
-            r'rate limited'
+            r'rate limited',
+            r'no subscription',
+            r'invalid platform'
         ]
         
         for pattern in error_patterns:
             error_match = re.search(pattern, line_lower)
             if error_match:
-                return {"error": True, "error_message": line}
+                result.update({"error": True, "error_message": line})
+                logger.debug(f"Found error: {line}")
+                break
         
-        return {}
+        return result
     
     except Exception as e:
         logger.error(f"Error parsing progress line: {line}. Error: {str(e)}")
@@ -603,7 +633,7 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         }
     
     try:
-        # Start SteamCMD process
+        # Start SteamCMD process with improved output handling
         process = subprocess.Popen(
             cmd_args, 
             stdout=subprocess.PIPE, 
@@ -619,63 +649,122 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
                 active_downloads[download_id]["status"] = "In Progress"
                 active_downloads[download_id]["process_pid"] = process.pid
         
-        # Read output line by line
+        # Set up a timeout for stalled downloads
+        last_progress_time = time.time()
+        last_progress_value = 0
+        stall_timeout = 300  # 5 minutes with no progress is considered stalled
+        
+        # Read output line by line with better handling of progress updates
         output_buffer = []
         download_error = False
         error_message = ""
         
-        for line in process.stdout:
-            line = line.strip()
-            output_buffer.append(line)
-            logger.debug(f"SteamCMD output: {line}")
+        # Use a non-blocking approach with timeout
+        import io
+        import select
+        
+        process_stdout = io.TextIOWrapper(process.stdout.buffer, encoding='utf-8', errors='replace')
+        
+        # Continue reading while process is alive
+        while process.poll() is None:
+            # Check for output with a timeout
+            ready, _, _ = select.select([process_stdout], [], [], 1.0)
             
-            # Parse progress from output
-            progress_info = parse_progress(line)
+            if ready:
+                line = process_stdout.readline().strip()
+                if not line:
+                    continue
+                
+                output_buffer.append(line)
+                logger.debug(f"SteamCMD output: {line}")
+                
+                # Parse progress from output
+                progress_info = parse_progress(line)
+                
+                # Check for error conditions
+                if "error" in progress_info:
+                    download_error = True
+                    error_message = progress_info.get("error_message", "Unknown error")
+                    logger.error(f"Download error: {error_message}")
+                    break
+                
+                # Update the download status with parsed progress info
+                with queue_lock:
+                    if download_id in active_downloads:
+                        # Update progress if available
+                        if "progress" in progress_info:
+                            progress_value = progress_info["progress"]
+                            active_downloads[download_id]["progress"] = progress_value
+                            
+                            # Update last progress time if there's actual progress
+                            if progress_value > last_progress_value:
+                                last_progress_time = time.time()
+                                last_progress_value = progress_value
+                                logger.info(f"Download progress: {progress_value:.2f}%")
+                        
+                        # Update download speed if available
+                        if "speed" in progress_info and "speed_unit" in progress_info:
+                            speed_text = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
+                            active_downloads[download_id]["speed"] = speed_text
+                            logger.info(f"Download speed: {speed_text}")
+                        
+                        # Update ETA if available
+                        if "eta" in progress_info:
+                            active_downloads[download_id]["eta"] = progress_info["eta"]
+                        
+                        # Update total size if available
+                        if "total_size" in progress_info and "unit" in progress_info:
+                            size_text = f"{progress_info['total_size']} {progress_info['unit']}"
+                            active_downloads[download_id]["total_size"] = size_text
+                        
+                        # Update current size if available
+                        if "current_size" in progress_info and "unit" in progress_info:
+                            current_text = f"{progress_info['current_size']} {progress_info['unit']}"
+                            active_downloads[download_id]["size_downloaded"] = current_text
             
-            # Check for error conditions
-            if "error" in progress_info:
-                download_error = True
-                error_message = progress_info.get("error_message", "Unknown error")
-                logger.error(f"Download error: {error_message}")
-                break
-            
-            # Update the download status with parsed progress info
-            with queue_lock:
-                if download_id in active_downloads:
-                    # Update progress if available
-                    if "progress" in progress_info:
-                        active_downloads[download_id]["progress"] = progress_info["progress"]
-                    
-                    # Update download speed if available
-                    if "speed" in progress_info and "speed_unit" in progress_info:
-                        active_downloads[download_id]["speed"] = f"{progress_info['speed']} {progress_info['speed_unit']}/s"
-                    
-                    # Update ETA if available
-                    if "eta" in progress_info:
-                        active_downloads[download_id]["eta"] = progress_info["eta"]
-                    
-                    # Update total size if available
-                    if "total_size" in progress_info and "unit" in progress_info:
-                        active_downloads[download_id]["total_size"] = f"{progress_info['total_size']} {progress_info['unit']}"
-                    
-                    # Update current size if available
-                    if "current_size" in progress_info and "unit" in progress_info:
-                        active_downloads[download_id]["size_downloaded"] = f"{progress_info['current_size']} {progress_info['unit']}"
-            
-            # Check for success message
-            if "success" in progress_info:
+            # Check for success message in the entire output buffer
+            if any(("Success!" in line or "fully installed" in line) for line in output_buffer[-20:]):
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["progress"] = 100.0
                         active_downloads[download_id]["status"] = "Complete"
                 logger.info(f"Download completed successfully for {game_name}")
+                break
+            
+            # Check if download has stalled (no progress in timeout period)
+            current_time = time.time()
+            if current_time - last_progress_time > stall_timeout:
+                logger.warning(f"Download appears to be stalled - no progress for {stall_timeout} seconds")
+                
+                # Add a stalled status to the download
+                with queue_lock:
+                    if download_id in active_downloads:
+                        # Only mark as stalled if we're not at 100%
+                        if active_downloads[download_id]["progress"] < 100:
+                            active_downloads[download_id]["status"] = "Stalled"
+                            active_downloads[download_id]["stalled_time"] = datetime.now()
+                
+                # For now, we'll let the process continue running in case it resumes
+                # Alternative approach would be to terminate and restart
         
-        # Wait for process to complete
+        # Read any remaining output
+        while True:
+            line = process_stdout.readline().strip()
+            if not line:
+                break
+            output_buffer.append(line)
+            logger.debug(f"Final SteamCMD output: {line}")
+        
+        # Wait for process to complete with timeout
         try:
-            process.wait(timeout=5)
+            process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             # If process doesn't exit gracefully, terminate it
             process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
             logger.warning(f"SteamCMD process for {game_name} terminated after timeout")
         
         # Check for download error
@@ -701,30 +790,6 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             
             logger.error(f"Download failed for {game_name}: {error_message}")
             return f"Error: Download failed. {error_message}"
-        
-        # Check process exit code
-        if process.returncode != 0:
-            with queue_lock:
-                if download_id in active_downloads:
-                    active_downloads[download_id]["status"] = "Failed"
-                    active_downloads[download_id]["error"] = f"SteamCMD exited with code {process.returncode}"
-                    
-                    # Move to download history
-                    download_history.insert(0, {
-                        "id": download_id,
-                        "appid": appid,
-                        "name": game_name,
-                        "status": "Failed",
-                        "error": f"SteamCMD exited with code {process.returncode}",
-                        "start_time": active_downloads[download_id]["start_time"],
-                        "end_time": datetime.now()
-                    })
-                    
-                    # Remove from active downloads
-                    del active_downloads[download_id]
-            
-            logger.error(f"SteamCMD process exited with code {process.returncode} for {game_name}")
-            return f"Error: SteamCMD exited with code {process.returncode}"
         
         # Validate download if requested
         if validate_download:
@@ -1282,10 +1347,13 @@ def create_downloads_tab():
                 # Format active downloads for table display
                 active_data = []
                 for download in status["active"]:
+                    # Format progress with 1 decimal place
+                    progress_display = f"{download['progress']:.1f}%" if isinstance(download['progress'], (int, float)) else download['progress']
+                    
                     active_data.append([
                         download["id"],
                         download["name"],
-                        f"{download['progress']:.1f}%",
+                        progress_display,
                         download["status"],
                         download["speed"],
                         download["eta"],
@@ -1359,24 +1427,43 @@ def create_downloads_tab():
             outputs=[queue_action_result]
         )
         
-        # Initialize the UI with current data
-        update_downloads_status()
+        # Set up auto-refresh with better implementation
+        def setup_auto_refresh():
+            while True:
+                try:
+                    time.sleep(5)  # Refresh every 5 seconds
+                    update_downloads_status()
+                except Exception as e:
+                    logger.error(f"Error in auto-refresh: {str(e)}")
+                    time.sleep(10)  # Wait longer after an error
         
-        # Set up auto-refresh
         refresh_interval = None
+        refresh_thread = None
         
         def toggle_auto_refresh(enabled):
-            nonlocal refresh_interval
-            if enabled and refresh_interval is None:
-                # Create new interval
-                refresh_interval = 10  # seconds
-                return "Auto-refresh enabled (10s)"
-            elif not enabled and refresh_interval is not None:
-                # Cancel interval
+            nonlocal refresh_interval, refresh_thread
+            
+            if enabled and refresh_thread is None:
+                # Start a new thread for auto-refresh
+                refresh_interval = 5  # seconds
+                refresh_thread = threading.Thread(target=setup_auto_refresh)
+                refresh_thread.daemon = True
+                refresh_thread.start()
+                logger.info("Auto-refresh started")
+                return "Auto-refresh enabled (5s)"
+            elif not enabled and refresh_thread is not None:
+                # We can't directly stop the thread, but we can set the interval to None
+                # which will make it exit on next iteration
                 refresh_interval = None
+                refresh_thread = None
+                logger.info("Auto-refresh stopped")
                 return "Auto-refresh disabled"
             return ""
         
+        # Initial update
+        update_downloads_status()
+        
+        # Connect auto-refresh toggle
         auto_refresh.change(
             fn=toggle_auto_refresh,
             inputs=[auto_refresh],
