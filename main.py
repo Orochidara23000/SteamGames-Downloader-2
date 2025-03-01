@@ -348,7 +348,7 @@ def verify_installation(appid, install_path):
         logging.error(f"Error during verification of App ID {appid}: {str(e)}")
         return False
 
-def download_game(username, password, guard_code, anonymous, game_input, validate_download):
+def download_game(username, password, guard_code, anonymous, appid, validate_download):
     """
     Handles the actual download of a Steam game.
     
@@ -357,24 +357,19 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         password (str): Steam password
         guard_code (str): Steam Guard code (if applicable)
         anonymous (bool): Whether to use anonymous login
-        game_input (str): Game ID or URL
+        appid (str): Game ID
         validate_download (bool): Whether to validate files after download
         
     Returns:
         str: Status message
     """
     try:
-        appid = parse_game_input(game_input)
-        if not appid:
-            return "Please enter a valid game ID or URL."
-        
-        # Generate a unique download ID
-        download_id = f"dl_{int(time.time())}_{appid}"
-        
-        # Get game info for better logging
         is_valid, game_info = validate_appid(appid)
         if not is_valid:
             return f"Invalid game: {game_info}"
+        
+        # Generate a unique download ID
+        download_id = f"dl_{int(time.time())}_{appid}"
         
         game_name = game_info.get('name', f'Unknown Game ({appid})')
         
@@ -605,7 +600,7 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
     # Check if we can start a new download immediately or need to queue
     with queue_lock:
         if not active_downloads:  # No active downloads
-            # Start download immediately
+            # Start download immediately, passing appid instead of game_input
             thread = threading.Thread(
                 target=download_game,
                 args=(username, password, guard_code, anonymous, appid, validate)
@@ -617,7 +612,7 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             # Add to queue
             download_queue.append({
                 "function": download_game,
-                "args": (username, password, guard_code, anonymous, appid, validate)
+                "args": (username, password, guard_code, anonymous, appid, validate)  # Pass appid here
             })
             position = len(download_queue)
             return f"Download for {game_info.get('name', 'Unknown Game')} (AppID: {appid}) queued at position {position}"
