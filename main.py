@@ -551,7 +551,9 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             "command": " ".join([arg if " " not in arg else f'"{arg}"' for arg in cmd_args])
         }
     
-    logger.info(f"SteamCMD command: {' '.join([arg if ' ' not in arg else f'"{arg}"' for arg in cmd_args])}")
+    # Log the command without using nested f-strings
+    cmd_str = " ".join([arg if " " not in arg else f'"{arg}"' for arg in cmd_args])
+    logger.info(f"SteamCMD command: {cmd_str}")
     
     try:
         # Start SteamCMD process
