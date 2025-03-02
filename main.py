@@ -1210,337 +1210,200 @@ def create_download_games_tab():
     return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
-    """Create the Downloads tab with reliable real-time progress display."""
+    """Create a simplified text-based Downloads tab with real-time progress updates."""
     with gr.Tab("Downloads"):
-        gr.Markdown("## Active Downloads and History")
+        gr.Markdown("## Downloads")
         
-        # Define function to get system statistics
-        def get_system_stats():
-            stats = []
+        # Create a simple function to format all download information as text
+        def get_downloads_text():
+            text_parts = []
             
-            # System info
-            stats.append("### System Information")
-            stats.append(f"Platform: {platform.system()} {platform.release()}")
+            # System info section
+            text_parts.append("### System Information")
+            text_parts.append(f"Platform: {platform.system()} {platform.release()}")
             
-            # Download directory
+            # Download directory and space info
             download_dir = get_default_download_location()
-            stats.append(f"Download Directory: {download_dir}")
+            text_parts.append(f"Download Directory: {download_dir}")
             
-            # Disk space
             try:
                 total, used, free = shutil.disk_usage(download_dir)
-                stats.append(f"Disk Space: {format_size(free)} free of {format_size(total)}")
+                text_parts.append(f"Disk Space: {format_size(free)} free of {format_size(total)}")
             except Exception as e:
-                stats.append(f"Disk Space: Error retrieving ({str(e)})")
+                text_parts.append(f"Disk Space: Error retrieving ({str(e)})")
             
-            # Active downloads count
-            active_count = len(get_download_status().get('active', []))
-            stats.append(f"Active Downloads: {active_count}")
+            text_parts.append("\n")  # Add spacing
             
-            return "\n".join(stats)
-
-        # Function to get active download data - IMPROVED VERSION
-        def get_active_downloads_data():
+            # Active downloads section
+            text_parts.append("### Currently Downloading")
+            
             status_data = get_download_status()
             active = status_data.get('active', [])
             
-            rows = []
-            for download in active:
-                # Skip download entries that don't have the required fields
-                if not all(k in download for k in ['id', 'name', 'process']):
-                    continue
+            if not active:
+                text_parts.append("No active downloads")
+            else:
+                for i, download in enumerate(active, 1):
+                    # Skip invalid entries
+                    if not all(k in download for k in ['id', 'name']):
+                        continue
+                        
+                    download_id = download.get('id', 'Unknown')
+                    game_name = download.get('name', 'Unknown Game')
                     
-                download_id = download.get('id', 'Unknown')
-                game_name = download.get('name', 'Unknown Game')
-                
-                # Format progress properly
-                progress = download.get('progress', 0)
-                if isinstance(progress, (int, float)):
-                    progress_str = f"{progress:.1f}%"
-                else:
-                    progress_str = str(progress)
+                    # Get progress info with fallbacks for missing data
+                    progress = download.get('progress', 'N/A')
+                    if isinstance(progress, (int, float)):
+                        progress_str = f"{progress:.1f}%"
+                    else:
+                        progress_str = str(progress)
+                        
+                    speed = download.get('speed', 'N/A')
+                    eta = download.get('eta', 'Unknown')
+                    status = download.get('status', 'Starting')
                     
-                # Format other fields
-                speed = download.get('speed', 'N/A')
-                eta = download.get('eta', 'Unknown')
-                status = download.get('status', 'Starting')
-                
-                # Check if process is still running
-                process = download.get('process')
-                if process:
-                    if process.poll() is not None:
+                    # Check if process is still running
+                    process = download.get('process')
+                    if process and process.poll() is not None:
                         if process.returncode == 0:
                             status = 'Completed'
                         else:
                             status = f'Error (code: {process.returncode})'
-                
-                # Simple text for cancel button
-                action = "Cancel"
-                
-                rows.append([download_id, game_name, progress_str, speed, eta, status, action])
+                    
+                    # Add a nicer progress bar representation
+                    if isinstance(progress, (int, float)) and 0 <= progress <= 100:
+                        bar_length = 20
+                        completed = int(bar_length * progress / 100)
+                        progress_bar = f"[{'█' * completed}{' ' * (bar_length - completed)}]"
+                    else:
+                        progress_bar = "[                    ]"
+                    
+                    # Format the download entry
+                    text_parts.append(f"Download #{i}: {game_name} (ID: {download_id})")
+                    text_parts.append(f"Status: {status}")
+                    text_parts.append(f"Progress: {progress_bar} {progress_str}")
+                    text_parts.append(f"Speed: {speed} | ETA: {eta}")
+                    
+                    # Add cancel instructions
+                    text_parts.append(f"To cancel, run this command: cancel_download('{download_id}')")
+                    text_parts.append("---")
             
-            if not rows:
-                return [["No active downloads", "", "", "", "", "", ""]]
-            return rows
-
-        # Function to get download history - IMPROVED VERSION
-        def get_history_data():
-            status_data = get_download_status()
+            text_parts.append("\n")  # Add spacing
+            
+            # Download history section
+            text_parts.append("### Download History")
+            
             history = status_data.get('history', [])
-            
-            rows = []
-            for item in history:
-                game_name = item.get('name', 'Unknown Game')
-                
-                # Format size
-                size = item.get('size', 'Unknown')
-                if isinstance(size, (int, float)) and size > 0:
-                    size = format_size(size)
+            if not history:
+                text_parts.append("No download history")
+            else:
+                for i, item in enumerate(history, 1):
+                    game_name = item.get('name', 'Unknown Game')
                     
-                # Format completion time
-                completed = item.get('completed', 'Unknown')
-                if isinstance(completed, (int, float)):
-                    try:
-                        completed = datetime.fromtimestamp(completed).strftime("%Y-%m-%d %H:%M")
-                    except:
-                        completed = str(completed)
-                    
-                # Format duration
-                duration = item.get('duration', 'Unknown')
-                if isinstance(duration, (int, float)):
-                    minutes, seconds = divmod(duration, 60)
-                    hours, minutes = divmod(minutes, 60)
-                    duration = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
-                    
-                status = item.get('status', 'Unknown')
-                
-                rows.append([game_name, size, completed, duration, status])
-            
-            if not rows:
-                return [["No download history", "", "", "", ""]]
-            return rows
-
-        # Function to update all data
-        def update_all_data():
-            """Update all UI components with freshest data"""
-            try:
-                system_info = get_system_stats()
-                active_data = get_active_downloads_data()
-                history_data = get_history_data()
-                
-                # Debug print
-                print(f"Active downloads: {len(active_data)}")
-                if len(active_data) > 0 and active_data[0][0] != "No active downloads":
-                    print(f"First download: {active_data[0]}")
-                
-                return system_info, active_data, history_data
-            except Exception as e:
-                print(f"Error updating data: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                return "Error updating data", [["Error", "", "", "", "", "", ""]], [["Error", "", "", "", ""]]
-
-        with gr.Row():
-            with gr.Column(scale=2):
-                # System stats
-                system_info = gr.Textbox(
-                    label="System Information",
-                    value=get_system_stats(),
-                    lines=6,
-                    max_lines=6,
-                    interactive=False
-                )
-                
-                # Active downloads section
-                gr.Markdown("### Currently Downloading")
-                active_downloads = gr.DataFrame(
-                    value=get_active_downloads_data(),
-                    headers=[
-                        "ID", "Game", "Progress", "Speed", "ETA", "Status", "Actions"
-                    ],
-                    datatype=["str", "str", "str", "str", "str", "str", "str"],
-                    row_count=5,
-                    col_count=(7, "fixed"),
-                    interactive=False
-                )
-                
-                # Download history
-                gr.Markdown("### Download History")
-                download_history = gr.DataFrame(
-                    value=get_history_data(),
-                    headers=[
-                        "Game", "Size", "Completed", "Duration", "Status"
-                    ],
-                    datatype=["str", "str", "str", "str", "str"],
-                    row_count=10,
-                    col_count=(5, "fixed"),
-                    interactive=False
-                )
-                
-                # Manual refresh button
-                refresh_button = gr.Button("Refresh Data", variant="secondary")
-                
-            with gr.Column(scale=1):
-                # Logs section
-                gr.Markdown("### Logs")
-                log_output = gr.Textbox(
-                    label="", 
-                    placeholder="Log messages will appear here...",
-                    lines=20,
-                    max_lines=20,
-                    interactive=False,
-                    autoscroll=True
-                )
-                
-                # Add log handler
-                class UILogHandler(logging.Handler):
-                    def __init__(self, log_box):
-                        super().__init__()
-                        self.log_box = log_box
-                        self.logs = []
-                        self.max_logs = 100
+                    # Format size
+                    size = item.get('size', 'Unknown')
+                    if isinstance(size, (int, float)) and size > 0:
+                        size = format_size(size)
                         
-                    def emit(self, record):
+                    # Format completion time
+                    completed = item.get('completed', 'Unknown')
+                    if isinstance(completed, (int, float)):
                         try:
-                            log_entry = self.format(record)
-                            self.logs.append(log_entry)
-                            # Keep only the most recent logs
-                            if len(self.logs) > self.max_logs:
-                                self.logs = self.logs[-self.max_logs:]
-                            
-                            # Update the log box if possible
-                            try:
-                                self.log_box.value = "\n".join(self.logs)
-                            except:
-                                pass  # Silently fail if update not possible
-                        except Exception as e:
-                            print(f"Error in log handler: {str(e)}")
-                
-                log_handler = UILogHandler(log_output)
-                log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-                logging.getLogger().addHandler(log_handler)
-                
-                # Add explicit log update button
-                update_logs_button = gr.Button("Update Logs")
-                update_logs_button.click(
-                    fn=lambda: "\n".join(log_handler.logs) if hasattr(log_handler, 'logs') else "No logs available",
-                    inputs=[],
-                    outputs=[log_output]
-                )
-                
-                # Clear logs button
-                clear_logs = gr.Button("Clear Logs")
-                clear_logs.click(
-                    fn=lambda: "",
-                    inputs=[],
-                    outputs=[log_output]
-                )
-
-        # Function to cancel download
-        def cancel_download(download_id):
-            """Cancel a download and refresh the displays"""
+                            completed = datetime.fromtimestamp(completed).strftime("%Y-%m-%d %H:%M")
+                        except:
+                            completed = str(completed)
+                        
+                    # Format duration
+                    duration = item.get('duration', 'Unknown')
+                    if isinstance(duration, (int, float)):
+                        minutes, seconds = divmod(duration, 60)
+                        hours, minutes = divmod(minutes, 60)
+                        duration = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
+                        
+                    status = item.get('status', 'Unknown')
+                    
+                    # Format the history entry
+                    text_parts.append(f"{i}. {game_name}")
+                    text_parts.append(f"   Size: {size} | Completed: {completed}")
+                    text_parts.append(f"   Duration: {duration} | Status: {status}")
+                    text_parts.append("   ---")
+            
+            # Add logs section
+            text_parts.append("\n### Recent Logs")
+            
             try:
-                cancel_result = cancel_download(download_id)
-                print(f"Cancelled download {download_id}: {cancel_result}")
-                time.sleep(0.5)  # Brief pause to let system update
-                return update_all_data()
+                # Get the most recent log entries (last 10)
+                log_lines = []
+                with open("app.log", "r") as log_file:
+                    log_lines = log_file.readlines()[-10:]
+                
+                if log_lines:
+                    for line in log_lines:
+                        text_parts.append(line.strip())
+                else:
+                    text_parts.append("No logs available")
             except Exception as e:
-                print(f"Error cancelling download: {str(e)}")
-                return update_all_data()
+                text_parts.append(f"Could not read logs: {str(e)}")
+            
+            # Join all parts with newlines
+            return "\n".join(text_parts)
         
-        # Connect refresh button to update function
-        refresh_button.click(
-            fn=update_all_data,
-            inputs=[],
-            outputs=[system_info, active_downloads, download_history]
+        # Create a function to cancel downloads that users can call
+        def cancel_download_wrapper(download_id):
+            try:
+                result = cancel_download(download_id)
+                return f"Download {download_id} canceled. Result: {result}"
+            except Exception as e:
+                return f"Failed to cancel download {download_id}: {str(e)}"
+        
+        # Register the cancel function
+        if not hasattr(globals(), 'cancel_download_ui'):
+            globals()['cancel_download_ui'] = cancel_download_wrapper
+        
+        # Add the downloads status display with auto-refresh
+        downloads_display = gr.Textbox(
+            label="Download Status",
+            value=get_downloads_text(),
+            lines=25,
+            max_lines=25,
+            interactive=False,
+            every=2  # Update every 2 seconds
         )
         
-        # Add manual refresh every 3 seconds via JavaScript
+        # Monospace font for better text formatting
         gr.HTML("""
+        <style>
+        .download-status textarea {
+            font-family: 'Courier New', monospace !important;
+            white-space: pre;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        </style>
         <script>
-        // Set up auto-refresh
-        (function() {
-            const REFRESH_INTERVAL = 3000; // 3 seconds
-            let timerId = null;
-            
-            function autoRefresh() {
-                // Find the refresh button and click it
-                const refreshBtn = document.querySelector('button[aria-label="Refresh Data"]');
-                if (refreshBtn) {
-                    console.log("Auto-refreshing download data...");
-                    refreshBtn.click();
-                }
-            }
-            
-            // Start auto-refresh when this tab is visible
-            function setupRefresh() {
-                if (timerId) {
-                    clearInterval(timerId);
-                }
-                
-                timerId = setInterval(autoRefresh, REFRESH_INTERVAL);
-                console.log("Auto-refresh started for downloads tab");
-                
-                // Initial refresh
-                setTimeout(autoRefresh, 500);
-            }
-            
-            // Clean up when the page unloads
-            window.addEventListener('unload', () => {
-                if (timerId) {
-                    clearInterval(timerId);
-                }
-            });
-            
-            // Start on page load
-            if (document.readyState === 'complete') {
-                setupRefresh();
-            } else {
-                window.addEventListener('load', setupRefresh);
-            }
-            
-            // Also set up click handler for cancel actions
-            function setupCancelHandler() {
-                document.addEventListener('click', (e) => {
-                    // Check if the click was in the active downloads table
-                    const downloadsTable = document.querySelector('table');
-                    if (!downloadsTable) return;
-                    
-                    // Check if clicked in last column (Actions)
-                    const cell = e.target.closest('td');
-                    if (!cell) return;
-                    
-                    const row = cell.parentElement;
-                    if (!row) return;
-                    
-                    const cellIndex = Array.from(row.cells).indexOf(cell);
-                    if (cellIndex === 6) { // 7th column (0-indexed)
-                        // Get download ID from first cell
-                        const downloadId = row.cells[0].innerText;
-                        if (downloadId && downloadId !== "No active downloads") {
-                            console.log("Cancelling download:", downloadId);
-                            
-                            // Call the API to cancel
-                            fetch(`/api/cancel_download/${downloadId}`, { method: 'POST' })
-                                .then(res => res.json())
-                                .then(() => {
-                                    // Click refresh button to update UI
-                                    const refreshBtn = document.querySelector('button[aria-label="Refresh Data"]');
-                                    if (refreshBtn) refreshBtn.click();
-                                })
-                                .catch(err => console.error("Error cancelling download:", err));
-                        }
+        // Apply monospace class to the download status textbox
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                const textareas = document.querySelectorAll('textarea');
+                for (const textarea of textareas) {
+                    if (textarea.placeholder.includes('Download Status')) {
+                        textarea.closest('.gradio-container').classList.add('download-status');
                     }
-                });
-            }
-            
-            // Set up cancel handler
-            setupCancelHandler();
-        })();
+                }
+            }, 1000);
+        });
         </script>
+
         """)
         
-    return system_info, active_downloads, download_history
+        # Add a small info text
+        gr.Markdown("""
+        > **Note:** The status updates automatically every 2 seconds. 
+        > To cancel a download, open the browser console (F12) and type: `cancel_download_ui("download-id")` 
+        > using the download ID shown in the status above.
+        """)
+
+    return downloads_display
 
 # JavaScript for auto-refresh and cancel functionality
 def js_autorefresh(interval):
