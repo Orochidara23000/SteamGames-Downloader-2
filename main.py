@@ -606,6 +606,18 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         
         logging.info(f"Starting download for {game_name} (AppID: {appid})")
         
+        # Check if game is free-to-play when using anonymous login
+        if anonymous:
+            is_free = app_info.get('is_free', False)
+            # Also check price to ensure we catch games that might be marked incorrectly
+            price_info = app_info.get('price_overview', {})
+            has_price = price_info and price_info.get('initial', 0) > 0
+            
+            if not is_free or has_price:
+                error_msg = f"Cannot download {game_name} anonymously - requires Steam account ownership. Please use account credentials."
+                logging.error(error_msg)
+                return f"Error: {error_msg}"
+        
         # Create download directory
         download_dir = get_default_download_location()
         app_dir = os.path.join(download_dir, 'steamapps', 'common', f'app_{appid}')
@@ -661,20 +673,22 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         }
         
         # Add to active downloads
-        active_downloads = get_download_status().get('active', [])
+        status_data = get_download_status()
+        active_downloads = status_data.get('active', [])
         active_downloads.append(download_info)
         
         # Start monitoring thread
-        threading.Thread(
+        monitor_thread = threading.Thread(
             target=monitor_download,
             args=(download_id, process),
             daemon=True
-        ).start()
+        )
+        monitor_thread.start()
         
         return download_id
         
     except Exception as e:
-        logging.error(f"Error starting download: {str(e)}")
+        logging.error(f"Error starting download: {str(e)}", exc_info=True)
         return f"Error: {str(e)}"
 
 def monitor_download(download_id, process):
@@ -1118,7 +1132,7 @@ def create_download_games_tab():
                 if isinstance(download_id, str) and "Error" in download_id:
                     return f"❌ {download_id}"
                 else:
-                    return f"✅ Download started with ID: {download_id}"
+                    return f"✅ Download started with ID: {download_id}. Check the Downloads tab for progress."
                     
             except Exception as e:
                 print(f"Error in download handler: {str(e)}")
@@ -2205,3 +2219,54 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
 def forward_to_download(username, password, guard_code, anonymous, game_input, validate_download):
     """Forward function to handle circular imports"""
     return queue_download(username, password, guard_code, anonymous, game_input, validate_download)
+
+def handle_download(game_input_text, username_val, password_val, guard_code_val, 
+                   anonymous_val, validate_val, game_info_json):
+    """Direct download initiation with improved error handling."""
+    try:
+        print(f"Starting download for: {game_input_text}")
+        
+        if not game_input_text:
+            return "❌ Please enter a game URL, ID, or title first."
+        
+        # Check if we have valid game info
+        if not game_info_json:
+            return "❌ Please click 'Check Game' first to verify the game information."
+            
+        # Parse game input to get appid
+        result = parse_game_input(game_input_text)
+        if isinstance(result, tuple) and len(result) == 2:
+            appid, _ = result
+        elif isinstance(result, str) and "Error" in result:
+            return f"❌ {result}"
+        else:
+            appid = result
+            
+        if not appid:
+            return "❌ Could not determine AppID from input."
+        
+        # Check if game might require subscription when using anonymous login
+        if anonymous_val:
+            app_info = get_game_info(appid)
+            is_free = app_info.get('is_free', False)
+            if not is_free:
+                return "❌ This game likely requires purchase. Please disable Anonymous Login and provide Steam credentials."
+            
+        # Start download directly (bypassing queue)
+        download_id = start_download(
+            username=username_val if not anonymous_val else "",
+            password=password_val if not anonymous_val else "",
+            guard_code=guard_code_val if not anonymous_val else "",
+            anonymous=anonymous_val,
+            appid=appid,
+            validate_download=validate_val
+        )
+        
+        if isinstance(download_id, str) and "Error" in download_id:
+            return f"❌ {download_id}"
+        else:
+            return f"✅ Download started with ID: {download_id}. Check the Downloads tab for progress."
+                
+    except Exception as e:
+        print(f"Error in download handler: {str(e)}")
+        return f"❌ Error: {str(e)}"
