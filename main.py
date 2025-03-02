@@ -1191,7 +1191,7 @@ def create_download_games_tab():
         
         # Connect this to your download button
         download_btn.click(
-            fn=download_game_simple,  # Use an existing function that's already defined
+            fn=lambda username, password, guard_code, anonymous, game_input, validate_download: queue_download(username, password, guard_code, anonymous, game_input, validate_download),
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
         )
@@ -2144,3 +2144,8 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     except Exception as e:
         logging.error(f"Download error: {str(e)}", exc_info=True)
         return f"Error starting download: {str(e)}"
+
+# Add this near the top of your file, after imports
+def forward_to_download(username, password, guard_code, anonymous, game_input, validate_download):
+    """Forward function to handle circular imports"""
+    return queue_download(username, password, guard_code, anonymous, game_input, validate_download)
