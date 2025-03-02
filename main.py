@@ -274,7 +274,6 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
             
             # Add a shorter timeout to prevent hanging
             response = requests.get(url, timeout=3)
-            logger.info(f"Received response from Steam API with status: {response.status_code}")
             
             if not response.ok:
                 logger.error(f"Steam API request failed with status: {response.status_code}")
@@ -312,7 +311,7 @@ def validate_appid(appid: str) -> Tuple[bool, Any]:
             
             logger.info(f"Game found: {game_info['name']} (Free: {game_info['is_free']})")
             return True, game_info
-        
+            
         except requests.exceptions.Timeout:
             logger.error(f"Timeout while validating App ID {appid}")
             return False, "Timeout while connecting to Steam API. Please try again later."
@@ -511,133 +510,81 @@ def process_download_queue():
             thread.start()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
-    """Queue a game for download or start immediately if no active downloads."""
-    logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
+    """Simplified function to download a game directly without queueing."""
+    try:
+        logging.info(f"Starting simplified download for: {game_input}")
     
-    if not anonymous and (not username or not password):
-        error_msg = "Error: Username and password are required for non-anonymous downloads."
-        logging.error(error_msg)
-        return error_msg
+        # Validate login details for non-anonymous downloads
+        if not anonymous and (not username or not password):
+            error_msg = "Error: Username and password are required for non-anonymous downloads."
+            logging.error(error_msg)
+            return error_msg
     
-    # Extract AppID from input
-    appid = parse_game_input(game_input)
-    if not appid:
-        error_msg = "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
-        logging.error(error_msg)
-        return error_msg
+        # Extract AppID
+        appid = parse_game_input(game_input)
+        if not appid:
+            error_msg = "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
+            logging.error(error_msg)
+            return error_msg
     
-    # Get basic game name (avoid API call that might hang)
-    game_name = f"Game (AppID: {appid})"
-    
-    # Create download directory
-    download_dir = os.path.join(STEAM_DOWNLOAD_PATH, f"steamapps/common/app_{appid}")
-    os.makedirs(download_dir, exist_ok=True)
-    logging.info(f"Download directory created: {download_dir}")
-    
-    # Set up command arguments
-    steamcmd_path = get_steamcmd_path()
-    cmd_args = [steamcmd_path]
-    
-    if anonymous:
-        cmd_args.extend(["+login", "anonymous"])
-    else:
-        cmd_args.extend(["+login", username, password])
-        if guard_code:
-            # Handle Steam Guard code if provided
-            pass
-    
-    cmd_args.extend([
-        "+force_install_dir", download_dir,
-        "+app_update", appid
-    ])
-    
-    if validate:
-        cmd_args.append("validate")
-    
-    cmd_args.append("+quit")
-    
-    # Generate a unique download ID
-    download_id = f"dl_{appid}_{int(time.time())}"
-    
-    # Log the command for debugging
-    cmd_str = ' '.join(cmd_args)
-    logging.info(f"Download command: {cmd_str}")
-    
-    # Add to active downloads
-    with queue_lock:
-        active_downloads[download_id] = {
-            "appid": appid,
-            "name": game_name,
-            "start_time": datetime.now(),
-            "progress": 0.0,
-            "status": "Starting",
-            "eta": "Calculating...",
-            "speed": "0 KB/s",
-            "size_downloaded": "0 MB",
-            "total_size": "Unknown"
-        }
-    
-    # Start the process in a thread to avoid blocking UI
-    def run_download():
+        logging.info(f"Simplified download: extracted AppID {appid}")
+        
+        # Create a download folder
+        download_folder = os.path.join(STEAM_DOWNLOAD_PATH, f"steamapps/common/app_{appid}")
+        os.makedirs(download_folder, exist_ok=True)
+        
+        logging.info(f"Simplified download: created folder {download_folder}")
+        
+        # Build SteamCMD command
+        steamcmd_path = get_steamcmd_path()
+        
+        if not os.path.exists(steamcmd_path):
+            return f"Error: SteamCMD not found at {steamcmd_path}"
+        
+        # Basic command
+        cmd_args = [steamcmd_path]
+        
+        if anonymous:
+            cmd_args.extend(["+login", "anonymous"])
+        else:
+            cmd_args.extend(["+login", username, password])
+            if guard_code:
+                # You'd need to handle Steam Guard code here
+                pass
+        
+        cmd_args.extend([
+            "+force_install_dir", download_folder,
+            "+app_update", appid
+        ])
+        
+        if validate:
+            cmd_args.append("validate")
+        
+        cmd_args.append("+quit")
+        
+        cmd_str = ' '.join(cmd_args)
+        logging.info(f"Simplified download: command prepared: {cmd_str if anonymous else '[CREDENTIALS HIDDEN]'}")
+        
+        # Start the process directly without tracking
         try:
-            logging.info(f"Starting download process for {download_id}")
-            
-            # Update status
-            with queue_lock:
-                if download_id in active_downloads:
-                    active_downloads[download_id]["status"] = "Running SteamCMD..."
-            
-            # Run the command
-            process = subprocess.Popen(
-                cmd_args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            
-            # Log the PID
-            logging.info(f"SteamCMD process started with PID: {process.pid}")
-            
-            # Read output
-            for line in process.stdout:
-                logging.info(f"SteamCMD output: {line.strip()}")
-                
-                # Update status with progress (very basic)
-                with queue_lock:
-                    if download_id in active_downloads:
-                        if "progress" in line.lower():
-                            active_downloads[download_id]["status"] = line.strip()
-                            
-                            # Try to extract percentage
-                            match = re.search(r'(\d+\.\d+)%', line)
-                            if match:
-                                active_downloads[download_id]["progress"] = float(match.group(1))
-            
-            # Process completed
-            return_code = process.wait()
-            logging.info(f"Download process completed with return code: {return_code}")
-            
-            # Update final status
-            with queue_lock:
-                if download_id in active_downloads:
-                    if return_code == 0:
-                        active_downloads[download_id]["status"] = "Completed"
-                        active_downloads[download_id]["progress"] = 100.0
-                    else:
-                        active_downloads[download_id]["status"] = f"Failed (code: {return_code})"
-            
+            # Discard output to avoid buffer issues
+            with open(os.path.join(download_folder, "output.log"), "w") as output_file:
+                process = subprocess.Popen(
+                    cmd_args,
+                    stdout=output_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
+                logging.info(f"Simplified download: started process with PID {process.pid}")
         except Exception as e:
-            logging.error(f"Error in download thread: {str(e)}", exc_info=True)
-            with queue_lock:
-                if download_id in active_downloads:
-                    active_downloads[download_id]["status"] = f"Error: {str(e)}"
-    
-    # Start the download thread
-    thread = threading.Thread(target=run_download)
-    thread.daemon = True
-    thread.start()
-    
-    return f"Started download for {game_name} (ID: {download_id})"
+            logging.error(f"Error starting process: {str(e)}", exc_info=True)
+            return f"Error starting process: {str(e)}"
+        
+        return f"Download started for AppID {appid} in folder: {download_folder}"
+            
+    except Exception as e:
+        logging.error(f"Download error: {str(e)}", exc_info=True)
+        return f"Error starting download: {str(e)}"
 
 def start_download(username, password, guard_code, anonymous, appid, validate_download):
     """Start a download using SteamCMD."""
