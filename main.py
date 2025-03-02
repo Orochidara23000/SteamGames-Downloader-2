@@ -1154,7 +1154,8 @@ def create_download_games_tab():
             outputs=download_status
         )
         
-    return None
+    # Return the necessary UI elements instead of None
+    return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
     """Create the 'Downloads' tab in the Gradio interface with real-time logs instead of tabular data."""
