@@ -1191,7 +1191,7 @@ def create_download_games_tab():
         
         # Connect this to your download button
         download_btn.click(
-            fn=download_game,  # This will look up the function at runtime
+            fn=download_game_simple,  # Use an existing function that's already defined
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
         )
