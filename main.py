@@ -1210,141 +1210,217 @@ def create_download_games_tab():
     return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
-    """Create a basic Downloads tab that shows raw download status data for debugging."""
+    """Create a basic Downloads tab that reliably shows download status and errors."""
     with gr.Tab("Downloads"):
         gr.Markdown("## Downloads Status")
         
-        # Debug function to get raw download status and display it
-        def get_downloads_debug_text():
+        # Function to check download status and format it properly
+        def get_download_status_text():
             try:
-                # Print debug info to console
-                print("Fetching download status...")
-                
-                # Get the raw status data
+                # Get the download data
                 status_data = get_download_status()
-                print(f"Raw status data: {status_data}")
                 
-                # Start building our display text
-                text_parts = []
+                # Start building the text display
+                parts = []
                 
-                # Basic system info
-                text_parts.append("### System Information")
-                text_parts.append(f"Platform: {platform.system()} {platform.release()}")
+                # Track errors for prominent display
+                errors = []
+                
+                # System information section
+                parts.append("### System Information")
+                parts.append(f"Platform: {platform.system()} {platform.release()}")
                 download_dir = get_default_download_location()
-                text_parts.append(f"Download Directory: {download_dir}")
-                text_parts.append("")
+                parts.append(f"Download Directory: {download_dir}")
+                parts.append("")
                 
-                # Raw status data for debugging
-                text_parts.append("### Raw Download Status Data (Debug)")
+                # Active downloads section
+                parts.append("### Active Downloads")
+                active = status_data.get('active', [])
                 
-                if not status_data:
-                    text_parts.append("No download status data available")
+                if not active:
+                    parts.append("No active downloads")
                 else:
-                    # Active downloads count
-                    active = status_data.get('active', [])
-                    text_parts.append(f"Active Downloads Count: {len(active)}")
-                    
-                    # History count
-                    history = status_data.get('history', [])
-                    text_parts.append(f"History Items Count: {len(history)}")
-                    
-                    # Show raw active downloads data
-                    text_parts.append("\n**Active Downloads Raw Data:**")
-                    if not active:
-                        text_parts.append("No active downloads")
-                    else:
-                        for i, download in enumerate(active, 1):
-                            text_parts.append(f"Download #{i}:")
-                            for key, value in download.items():
-                                # Skip process object as it's not displayable
-                                if key == 'process':
-                                    text_parts.append(f"  {key}: <Process object>")
-                                else:
-                                    text_parts.append(f"  {key}: {value}")
-                            text_parts.append("---")
-                    
-                    # Show history data
-                    text_parts.append("\n**History Raw Data:**")
-                    if not history:
-                        text_parts.append("No download history")
-                    else:
-                        for i, item in enumerate(history, 1):
-                            text_parts.append(f"History Item #{i}:")
-                            for key, value in item.items():
-                                text_parts.append(f"  {key}: {value}")
-                            text_parts.append("---")
+                    for i, download in enumerate(active, 1):
+                        download_id = download.get('id', 'Unknown')
+                        game_name = download.get('name', 'Unknown Game')
+                        app_id = download.get('appid', 'Unknown')
+                        
+                        parts.append(f"**Download #{i}: {game_name}** (AppID: {app_id})")
+                        parts.append(f"ID: {download_id}")
+                        
+                        # Status and progress
+                        status = download.get('status', 'Starting')
+                        progress = download.get('progress', 'N/A')
+                        
+                        # Check for errors
+                        if 'error' in download and download['error']:
+                            error_msg = download['error']
+                            status = f"ERROR: {error_msg}"
+                            errors.append(f"{game_name}: {error_msg}")
+                        
+                        parts.append(f"Status: {status}")
+                        
+                        if isinstance(progress, (int, float)):
+                            parts.append(f"Progress: {progress:.1f}%")
+                        else:
+                            parts.append(f"Progress: {progress}")
+                        
+                        # Recent output logs
+                        if 'logs' in download and download['logs']:
+                            parts.append("Recent output:")
+                            log_lines = download['logs'][-5:] if len(download['logs']) > 5 else download['logs']
+                            for line in log_lines:
+                                parts.append(f"  > {line}")
+                        
+                        parts.append("---")
                 
-                # Join all parts and return
-                return "\n".join(text_parts)
+                # Download history
+                parts.append("\n### Download History")
+                history = status_data.get('history', [])
+                
+                if not history:
+                    parts.append("No download history")
+                else:
+                    for i, item in enumerate(history, 1):
+                        game_name = item.get('name', 'Unknown Game')
+                        app_id = item.get('appid', 'Unknown')
+                        status = item.get('status', 'Unknown')
+                        
+                        parts.append(f"**{i}. {game_name}** (AppID: {app_id})")
+                        parts.append(f"  Status: {status}")
+                        
+                        # Check for errors
+                        if 'error' in item and item['error']:
+                            error_msg = item['error']
+                            parts.append(f"  Error: {error_msg}")
+                            errors.append(f"{game_name}: {error_msg}")
+                        
+                        # Final output logs
+                        if 'logs' in item and item['logs']:
+                            parts.append("  Final output:")
+                            log_lines = item['logs'][-3:] if len(item['logs']) > 3 else item['logs']
+                            for line in log_lines:
+                                parts.append(f"    > {line}")
+                        
+                        parts.append("  ---")
+                
+                # Display prominent error section if errors were found
+                if errors:
+                    error_section = ["### ⚠️ Download Errors Detected", ""]
+                    for error in errors:
+                        error_section.append(f"• {error}")
+                    error_section.append("")
+                    
+                    # Insert at the beginning after system info
+                    parts = parts[:4] + error_section + parts[4:]
+                
+                # Add note about free games and subscriptions
+                parts.append("\n### Important Notes")
+                parts.append("""
+• Even FREE games require a subscription (the game must be in your Steam library)
+• To download free games, either:
+  1. First add the game to your library on the Steam website/client, then log in with your account, or
+  2. Try downloading only official Valve free games like Team Fortress 2 (440) when using Anonymous login
+                """)
+                
+                return "\n".join(parts)
                 
             except Exception as e:
                 import traceback
                 error_text = traceback.format_exc()
-                print(f"Error in get_downloads_debug_text: {str(e)}")
+                print(f"Error in get_download_status_text: {str(e)}")
                 print(error_text)
-                
-                # Return the error information in the display
                 return f"""
                 ### Error Getting Download Status
                 
                 An error occurred while getting download status:
                 {str(e)}
                 
-                Traceback:
-                {error_text}
-                
-                Please check your console for more information.
+                Please check the logs for more information.
                 """
         
-        # Add a manual refresh button
-        refresh_btn = gr.Button("Refresh Download Status")
-        
-        # Add the simple debug display
-        downloads_display = gr.Textbox(
-            label="Download Status (Debug View)",
-            value="Click 'Refresh Download Status' to see download information...",
-            lines=25,
-            max_lines=25,
-            interactive=False
+        # Add download status display that updates every 3 seconds
+        download_status = gr.Textbox(
+            label="Download Status",
+            value=get_download_status_text(),
+            lines=30,
+            max_lines=30, 
+            interactive=False,
+            every=3
         )
         
-        # Connect the refresh button
+        # Add a manual refresh button for immediate updates
+        refresh_btn = gr.Button("Refresh Now")
+        
         refresh_btn.click(
-            fn=get_downloads_debug_text,
+            fn=get_download_status_text,
             inputs=[],
-            outputs=[downloads_display]
+            outputs=[download_status]
         )
         
-        # Add helper instructions
-        gr.Markdown("""
-        > **Troubleshooting:**
-        > 1. Click the 'Refresh Download Status' button to manually update the status
-        > 2. Check if any download data appears in the text box
-        > 3. If no data appears, there might be an issue with how downloads are being tracked
-        """)
-        
-        # Also add a simple cancel function
+        # Add a section to enhance the UI
         with gr.Row():
-            cancel_id_input = gr.Textbox(label="Download ID to Cancel")
-            cancel_btn = gr.Button("Cancel Download")
+            with gr.Column(scale=2):
+                # Cancel download section
+                cancel_id = gr.Textbox(
+                    label="Download ID to Cancel",
+                    placeholder="Enter the download ID from above"
+                )
+                
+            with gr.Column(scale=1):
+                cancel_btn = gr.Button("Cancel Download", variant="stop")
         
-        cancel_result = gr.Textbox(label="Cancel Result", interactive=False)
+        cancel_result = gr.Textbox(label="Action Result", interactive=False)
         
-        def cancel_download_ui(download_id):
+        def cancel_download_action(download_id):
+            if not download_id or download_id.strip() == "":
+                return "Error: Please enter a download ID"
+            
             try:
-                print(f"Attempting to cancel download: {download_id}")
                 result = cancel_download(download_id)
-                return f"Download {download_id} canceled. Result: {result}"
+                return f"Download {download_id} canceled successfully"
             except Exception as e:
-                return f"Failed to cancel download {download_id}: {str(e)}"
+                return f"Error canceling download: {str(e)}"
         
         cancel_btn.click(
-            fn=cancel_download_ui,
-            inputs=[cancel_id_input],
+            fn=cancel_download_action,
+            inputs=[cancel_id],
             outputs=[cancel_result]
         )
+        
+        # Add instructions with monospace styling for the download display
+        gr.HTML("""
+        <style>
+        .download-status textarea {
+            font-family: 'Courier New', monospace !important;
+            white-space: pre;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        </style>
+        <script>
+        // Apply monospace class to the download status textbox
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                const textareas = document.querySelectorAll('textarea');
+                for (const textarea of textareas) {
+                    if (textarea.placeholder.includes('Download Status')) {
+                        textarea.closest('.gradio-container').classList.add('download-status');
+                    }
+                }
+            }, 1000);
+        });
+        </script>
+        """)
+        
+        # Add notice about the "No subscription" error
+        gr.Markdown("""
+        > **Common Error: "No subscription"**  
+        > This error occurs because SteamCMD requires that games (even free ones) be added to your Steam library first.
+        > For anonymous login, only certain Valve games will work, such as Team Fortress 2 (AppID: 440).
+        """)
 
-    return downloads_display
+    return download_status
 
 # JavaScript for auto-refresh and cancel functionality
 def js_autorefresh(interval):
