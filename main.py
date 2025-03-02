@@ -1091,17 +1091,24 @@ def create_download_games_tab():
                 
                 # Create HTML display for game preview
                 html = f"""
-                <div style="display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
-                    <h3>{name}</h3>
-                    <div><strong>AppID:</strong> {appid}</div>
-                    <div style="max-width: 100%;">
-                        <img src="{header_image}" style="max-width: 100%; height: auto;" 
+                <div style="display: flex; flex-direction: column; gap: 15px; padding: 15px; border-radius: 8px; background: #f5f7f9; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+                    <h2 style="margin: 0; color: #1a1a2e; font-size: 24px;">{name}</h2>
+                    <div style="color: #666; font-size: 14px;"><strong>AppID:</strong> {appid}</div>
+                    <div style="width: 100%; max-width: 460px; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                        <img src="{header_image}" style="width: 100%; height: auto; display: block;" 
                              onerror="this.onerror=null; this.src='https://store.cloudflare.steamstatic.com/public/shared/images/responsive/header_logo.png';" />
                     </div>
-                    <div>
-                        <strong>Description:</strong> {description}
+                    <div style="background: #fff; padding: 12px; border-radius: 6px; line-height: 1.4; border-left: 4px solid #1b3a57;">
+                        <strong style="color: #1b3a57;">Description:</strong> {description}
                     </div>
-                    <div><strong>Size:</strong> {size_text}</div>
+                    <div style="display: inline-block; background: #e6f0f9; color: #0c5460; padding: 8px 12px; border-radius: 20px; font-weight: bold;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        {size_text}
+                    </div>
                 </div>
                 """
                 
