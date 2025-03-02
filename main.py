@@ -24,6 +24,7 @@ import uuid
 import math
 import concurrent.futures
 import socket
+import urllib.request
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -1817,6 +1818,49 @@ def run_network_diagnostics():
     except Exception as e:
         logger.error(f"DNS resolution for Steam: Failed - {str(e)}")
 
+def diagnose_environment():
+    """Run diagnostics to check the environment configuration."""
+    try:
+        # Get system information
+        import platform
+        import shutil
+        
+        result = "=== System Information ===\n"
+        result += f"OS: {platform.system()} {platform.release()}\n"
+        result += f"Python: {platform.python_version()}\n"
+        
+        # Check disk space
+        download_dir = get_default_download_location()
+        total, used, free = shutil.disk_usage(download_dir)
+        result += f"\n=== Disk Space ===\n"
+        result += f"Download directory: {download_dir}\n"
+        result += f"Free space: {format_size(free)} / {format_size(total)}\n"
+        
+        # Check SteamCMD
+        steamcmd_path = get_steamcmd_path()
+        result += f"\n=== SteamCMD ===\n"
+        result += f"Path: {steamcmd_path}\n"
+        result += f"Exists: {os.path.exists(steamcmd_path)}\n"
+        
+        # Check network connectivity
+        result += f"\n=== Network ===\n"
+        try:
+            urllib.request.urlopen("https://store.steampowered.com", timeout=5)
+            result += "Steam Store: Accessible\n"
+        except:
+            result += "Steam Store: Not accessible\n"
+            
+        try:
+            urllib.request.urlopen("https://steamcdn-a.akamaihd.net", timeout=5)
+            result += "Steam CDN: Accessible\n"
+        except:
+            result += "Steam CDN: Not accessible\n"
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error during diagnostics: {str(e)}", exc_info=True)
+        return f"Error running diagnostics: {str(e)}"
+        
 def verify_steamcmd():
     """Verify SteamCMD is functional and working correctly."""
     try:
@@ -2066,53 +2110,6 @@ def download_game_simple(username, password, guard_code, anonymous, game_input, 
         with open(status_file, 'a') as f:
             f.write(f"\nERROR: {str(e)}")
         return f"Error: {str(e)}"
-
-def diagnose_environment():
-    """Diagnose potential issues in the environment."""
-    results = []
-    
-    # Check platform
-    results.append(f"Platform: {platform.system()}")
-    results.append(f"Python version: {sys.version}")
-    
-    # Check directories
-    steam_dir = os.path.join(STEAM_DOWNLOAD_PATH, "steamapps")
-    steamcmd_dir = os.path.dirname(get_steamcmd_path())
-    
-    results.append(f"Download path: {STEAM_DOWNLOAD_PATH} (Exists: {os.path.exists(STEAM_DOWNLOAD_PATH)})")
-    results.append(f"Steam apps dir: {steam_dir} (Exists: {os.path.exists(steam_dir)})")
-    results.append(f"SteamCMD dir: {steamcmd_dir} (Exists: {os.path.exists(steamcmd_dir)})")
-    
-    # Check SteamCMD
-    steamcmd_path = get_steamcmd_path()
-    results.append(f"SteamCMD path: {steamcmd_path} (Exists: {os.path.exists(steamcmd_path)})")
-    
-    if os.path.exists(steamcmd_path):
-        if platform.system() != "Windows":
-            is_exec = os.access(steamcmd_path, os.X_OK)
-            results.append(f"SteamCMD is executable: {is_exec}")
-    
-    # Check disk space
-    disk_info = psutil.disk_usage('/')
-    results.append(f"Disk space: {disk_info.free / (1024**3):.2f} GB free of {disk_info.total / (1024**3):.2f} GB")
-    
-    # Check network connectivity
-    try:
-        response = requests.get("https://store.steampowered.com", timeout=5)
-        results.append(f"Steam store connectivity: OK (Status: {response.status_code})")
-    except Exception as e:
-        results.append(f"Steam store connectivity: Failed ({str(e)})")
-    
-    # Check if other processes are running
-    try:
-        for proc in psutil.process_iter(['pid', 'name']):
-            if 'steam' in proc.info['name'].lower():
-                results.append(f"Found Steam process: {proc.info['name']} (PID: {proc.info['pid']})")
-    except:
-        results.append("Could not check for Steam processes")
-    
-    # Return formatted results
-    return "\n".join(results)
 
 def emergency_download_game(username, password, guard_code, anonymous, game_input, validate_download):
     """
