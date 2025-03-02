@@ -1244,7 +1244,7 @@ def create_download_games_tab():
         
         # Connect this to your download button
         download_btn.click(
-            fn=queue_download,  # Make sure we use the existing queue_download function
+            fn=emergency_download_game,  # Use our emergency function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
         )
@@ -2117,3 +2117,67 @@ def diagnose_environment():
     
     # Return formatted results
     return "\n".join(results)
+
+def emergency_download_game(username, password, guard_code, anonymous, game_input, validate_download):
+    """
+    Emergency download function that bypasses all the complex logic.
+    Just runs SteamCMD directly and returns a simple status.
+    """
+    try:
+        logging.info(f"Emergency download function called for: {game_input}")
+        
+        # Extract AppID
+        appid = parse_game_input(game_input)
+        if not appid:
+            return "Error: Invalid game input. Could not extract AppID."
+        
+        logging.info(f"Emergency download: extracted AppID {appid}")
+        
+        # Create a unique download folder
+        timestamp = int(time.time())
+        download_folder = os.path.join(STEAM_DOWNLOAD_PATH, f"game_{appid}_{timestamp}")
+        os.makedirs(download_folder, exist_ok=True)
+        
+        logging.info(f"Emergency download: created folder {download_folder}")
+        
+        # Build SteamCMD command
+        steamcmd_path = get_steamcmd_path()
+        
+        if not os.path.exists(steamcmd_path):
+            return f"Error: SteamCMD not found at {steamcmd_path}"
+        
+        # Basic command
+        if anonymous:
+            cmd = f'"{steamcmd_path}" +login anonymous +force_install_dir "{download_folder}" +app_update {appid} +quit'
+        else:
+            # You'd need to handle credentials properly in a real implementation
+            cmd = f'"{steamcmd_path}" +login {username} {password} +force_install_dir "{download_folder}" +app_update {appid} +quit'
+        
+        logging.info(f"Emergency download: command prepared (not showing credentials)")
+        
+        # Write a status file we can check later
+        status_path = os.path.join(download_folder, "download_status.txt")
+        with open(status_path, 'w') as f:
+            f.write(f"Download started at: {datetime.now()}\n")
+            f.write(f"AppID: {appid}\n")
+            f.write(f"Anonymous: {anonymous}\n")
+            f.write(f"Command: {cmd if anonymous else '[CREDENTIALS HIDDEN]'}\n\n")
+        
+        logging.info(f"Emergency download: wrote status file to {status_path}")
+        
+        # Run the command as a direct OS command
+        if platform.system() == "Windows":
+            # Use subprocess.Popen for Windows
+            process = subprocess.Popen(cmd, shell=True)
+            logging.info(f"Emergency download: started Windows process with PID {process.pid}")
+            return f"Download started for AppID {appid}. Check folder: {download_folder}"
+        else:
+            # For Linux/Mac, use os.system to run detached
+            os_cmd = f"nohup {cmd} > '{download_folder}/output.log' 2>&1 &"
+            os.system(os_cmd)
+            logging.info(f"Emergency download: started detached process with nohup")
+            return f"Download started for AppID {appid}. Check folder: {download_folder}"
+            
+    except Exception as e:
+        logging.error(f"Emergency download error: {str(e)}", exc_info=True)
+        return f"Error starting download: {str(e)}"
