@@ -1158,87 +1158,6 @@ def create_downloads_tab():
     with gr.Tab("Downloads"):
         gr.Markdown("## Active Downloads and History")
         
-        with gr.Row():
-            with gr.Column(scale=2):
-                # System stats (using Textbox instead of Markdown for updateable content)
-                system_stats = gr.Textbox(
-                    label="System Information",
-                    value="",
-                    lines=5,
-                    max_lines=5,
-                    interactive=False
-                )
-                
-                # Active downloads section
-                gr.Markdown("### Currently Downloading")
-                active_downloads = gr.DataFrame(
-                    headers=[
-                        "ID", "Game", "Progress", "Speed", "ETA", "Status", "Actions"
-                    ],
-                    datatype=["str", "str", "str", "str", "str", "str", "str"],
-                    row_count=5,
-                    col_count=(7, "fixed"),
-                    interactive=False
-                )
-                
-                # Download history
-                gr.Markdown("### Download History")
-                download_history = gr.DataFrame(
-                    headers=[
-                        "Game", "Size", "Completed", "Duration", "Status"
-                    ],
-                    datatype=["str", "str", "str", "str", "str"],
-                    row_count=10,
-                    col_count=(5, "fixed"),
-                    interactive=False
-                )
-                
-                refresh_button = gr.Button("Refresh Data", variant="secondary", elem_id="refresh-button")
-                
-            with gr.Column(scale=1):
-                # Logs section
-                gr.Markdown("### Logs")
-                log_output = gr.Textbox(
-                    label="", 
-                    placeholder="Log messages will appear here...",
-                    lines=20,
-                    max_lines=20,
-                    interactive=False,
-                    autoscroll=True
-                )
-                
-                # Add log handler
-                class UILogHandler(logging.Handler):
-                    def __init__(self, log_box):
-                        super().__init__()
-                        self.log_box = log_box
-                        self.logs = []
-                        self.max_logs = 100
-                        
-                    def emit(self, record):
-                        try:
-                            log_entry = self.format(record)
-                            self.logs.append(log_entry)
-                            # Keep only the most recent logs
-                            if len(self.logs) > self.max_logs:
-                                self.logs = self.logs[-self.max_logs:]
-                            # Update the UI with all logs
-                            self.log_box.update(value="\n".join(self.logs))
-                        except Exception as e:
-                            print(f"Error in log handler: {str(e)}")
-                
-                log_handler = UILogHandler(log_output)
-                log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-                logging.getLogger().addHandler(log_handler)
-                
-                # Clear logs button
-                clear_logs = gr.Button("Clear Logs")
-                clear_logs.click(
-                    fn=lambda: "",
-                    inputs=[],
-                    outputs=[log_output]
-                )
-
         # Define function to get system statistics
         def get_system_stats():
             stats = []
@@ -1278,7 +1197,7 @@ def create_downloads_tab():
                 eta = download.get('eta', 'Unknown')
                 status = download.get('status', 'Unknown')
                 
-                # Create cancel button text (we'll handle this with JS)
+                # Create cancel button text
                 action = f"Cancel {download_id}"
                 
                 rows.append([download_id, game_name, progress, speed, eta, status, action])
@@ -1313,6 +1232,90 @@ def create_downloads_tab():
             
             return rows if rows else [["No download history", "", "", "", ""]]
 
+        # Get initial data
+        initial_stats = get_system_stats()
+        initial_active = get_active_downloads_data()
+        initial_history = get_history_data()
+        
+        with gr.Row():
+            with gr.Column(scale=2):
+                # System stats with initial value
+                system_stats = gr.Textbox(
+                    label="System Information",
+                    value=initial_stats,  # Set initial value directly
+                    lines=5,
+                    max_lines=5,
+                    interactive=False
+                )
+                
+                # Active downloads section
+                gr.Markdown("### Currently Downloading")
+                active_downloads = gr.DataFrame(
+                    value=initial_active,  # Set initial value directly
+                    headers=[
+                        "ID", "Game", "Progress", "Speed", "ETA", "Status", "Actions"
+                    ],
+                    datatype=["str", "str", "str", "str", "str", "str", "str"],
+                    row_count=5,
+                    col_count=(7, "fixed"),
+                    interactive=False,
+                    elem_id="active-downloads-table"
+                )
+                
+                # Download history
+                gr.Markdown("### Download History")
+                download_history = gr.DataFrame(
+                    value=initial_history,  # Set initial value directly
+                    headers=[
+                        "Game", "Size", "Completed", "Duration", "Status"
+                    ],
+                    datatype=["str", "str", "str", "str", "str"],
+                    row_count=10,
+                    col_count=(5, "fixed"),
+                    interactive=False
+                )
+                
+                refresh_button = gr.Button("Refresh Data", variant="secondary", elem_id="refresh-button")
+                
+            with gr.Column(scale=1):
+                # Logs section
+                gr.Markdown("### Logs")
+                log_output = gr.Textbox(
+                    label="", 
+                    placeholder="Log messages will appear here...",
+                    lines=20,
+                    max_lines=20,
+                    interactive=False,
+                    autoscroll=True
+                )
+                
+                # Add log handler that doesn't use update method
+                class UILogHandler(logging.Handler):
+                    def __init__(self, log_box):
+                        super().__init__()
+                        self.log_box = log_box
+                        self.logs = []
+                        self.max_logs = 100
+                        
+                    def emit(self, record):
+                        try:
+                            log_entry = self.format(record)
+                            self.logs.append(log_entry)
+                            # Keep only the most recent logs
+                            if len(self.logs) > self.max_logs:
+                                self.logs = self.logs[-self.max_logs:]
+                            # Use gradio's built-in queue mechanism instead of direct update
+                            gr.Info(log_entry)  # Show latest log as notification
+                        except Exception as e:
+                            print(f"Error in log handler: {str(e)}")
+                
+                log_handler = UILogHandler(log_output)
+                log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+                logging.getLogger().addHandler(log_handler)
+                
+                # Clear logs button
+                clear_logs = gr.Button("Clear Logs")
+
         # Function to update all data
         def update_data():
             return (
@@ -1327,17 +1330,7 @@ def create_downloads_tab():
             # Short pause to let system update
             time.sleep(0.5)
             return update_data()
-        
-        # Initial data load
-        initial_stats = get_system_stats()
-        initial_active = get_active_downloads_data()
-        initial_history = get_history_data()
-        
-        # Set initial values
-        system_stats.update(value=initial_stats)
-        active_downloads.update(value=initial_active)
-        download_history.update(value=initial_history)
-        
+            
         # Connect refresh button
         refresh_button.click(
             fn=update_data,
@@ -1345,42 +1338,62 @@ def create_downloads_tab():
             outputs=[system_stats, active_downloads, download_history]
         )
         
-        # Add JavaScript for handling cancel actions and auto-refresh
-        auto_refresh_js = """
+        # Connect clear logs button
+        clear_logs.click(
+            fn=lambda: "",
+            inputs=[],
+            outputs=[log_output]
+        )
+        
+        # Add JavaScript for auto-refresh and cancel
+        gr.HTML("""
         <script>
         // Function to handle DataFrame clicks (for cancel actions)
         function setupCancelButtons() {
-            const table = document.querySelector('#active-downloads-table');
-            if (!table) return;
-            
-            table.addEventListener('click', (e) => {
-                const cell = e.target.closest('td');
-                if (!cell) return;
-                
-                const rowIndex = cell.parentNode.rowIndex;
-                const cellIndex = cell.cellIndex;
-                
-                // Check if clicking action column (index 6)
-                if (cellIndex === 6) {
-                    const dataTable = document.querySelector('#active-downloads-table');
-                    const downloadId = dataTable.rows[rowIndex].cells[0].innerText;
-                    
-                    if (downloadId && downloadId !== "No active downloads") {
-                        fetch(`/api/cancel_download/${downloadId}`, {
-                            method: 'POST'
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            console.log('Download cancelled:', data);
-                            // Trigger refresh
-                            document.querySelector('#refresh-button').click();
-                        })
-                        .catch(error => {
-                            console.error('Error cancelling download:', error);
-                        });
-                    }
+            // Use setTimeout to wait for the DOM to fully load
+            setTimeout(() => {
+                const table = document.getElementById('active-downloads-table');
+                if (!table) {
+                    console.log('Active downloads table not found, will retry');
+                    setupCancelButtons();  // Retry
+                    return;
                 }
-            });
+                
+                table.addEventListener('click', (e) => {
+                    const cell = e.target.closest('td');
+                    if (!cell) return;
+                    
+                    const rowIndex = cell.parentNode.rowIndex;
+                    if (rowIndex <= 0) return;  // Skip header row
+                    
+                    const cellIndex = cell.cellIndex;
+                    
+                    // Check if clicking action column (index 6)
+                    if (cellIndex === 6) {
+                        const dataTable = document.getElementById('active-downloads-table');
+                        const downloadId = dataTable.rows[rowIndex].cells[0].innerText;
+                        
+                        if (downloadId && downloadId !== "No active downloads") {
+                            console.log('Cancelling download:', downloadId);
+                            
+                            fetch(`/api/cancel_download/${downloadId}`, {
+                                method: 'POST'
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                console.log('Download cancelled:', data);
+                                // Trigger refresh
+                                document.getElementById('refresh-button').click();
+                            })
+                            .catch(error => {
+                                console.error('Error cancelling download:', error);
+                            });
+                        }
+                    }
+                });
+                
+                console.log('Cancel buttons setup complete');
+            }, 1000);  // Wait 1 second for DOM to be ready
         }
         
         // Auto refresh setup
@@ -1388,18 +1401,21 @@ def create_downloads_tab():
         
         function startAutoRefresh() {
             refreshInterval = setInterval(() => {
-                const refreshBtn = document.querySelector('#refresh-button');
+                const refreshBtn = document.getElementById('refresh-button');
                 if (refreshBtn) refreshBtn.click();
             }, 5000); // Refresh every 5 seconds
         }
         
         // Setup when DOM is loaded
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                setupCancelButtons();
-                startAutoRefresh();
-            });
-        } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, setting up functionality');
+            setupCancelButtons();
+            startAutoRefresh();
+        });
+        
+        // Backup in case DOMContentLoaded already fired
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            console.log('DOM already loaded, setting up functionality now');
             setupCancelButtons();
             startAutoRefresh();
         }
@@ -1409,9 +1425,7 @@ def create_downloads_tab():
             if (refreshInterval) clearInterval(refreshInterval);
         });
         </script>
-        """
-        
-        gr.HTML(auto_refresh_js)
+        """)
         
     return download_history
 
