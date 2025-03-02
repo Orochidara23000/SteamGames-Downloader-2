@@ -511,10 +511,9 @@ def process_download_queue():
             thread.start()
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
-    """Add a download to the queue or start it immediately if no active downloads."""
+    """Queue a game for download or start immediately if no active downloads."""
     logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
     
-    # Validate login details for non-anonymous downloads
     if not anonymous and (not username or not password):
         error_msg = "Error: Username and password are required for non-anonymous downloads."
         logging.error(error_msg)
@@ -527,38 +526,118 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logging.error(error_msg)
         return error_msg
     
-    # Do a basic check if this is a valid AppID format
-    if not appid.isdigit():
-        error_msg = f"Invalid AppID format: {appid}. AppID must be numeric."
-        logging.error(error_msg)
-        return error_msg
-    
-    # Get basic game info without API call
+    # Get basic game name (avoid API call that might hang)
     game_name = f"Game (AppID: {appid})"
     
-    # Check if we can start a new download immediately or need to queue
+    # Create download directory
+    download_dir = os.path.join(STEAM_DOWNLOAD_PATH, f"steamapps/common/app_{appid}")
+    os.makedirs(download_dir, exist_ok=True)
+    logging.info(f"Download directory created: {download_dir}")
+    
+    # Set up command arguments
+    steamcmd_path = get_steamcmd_path()
+    cmd_args = [steamcmd_path]
+    
+    if anonymous:
+        cmd_args.extend(["+login", "anonymous"])
+    else:
+        cmd_args.extend(["+login", username, password])
+        if guard_code:
+            # Handle Steam Guard code if provided
+            pass
+    
+    cmd_args.extend([
+        "+force_install_dir", download_dir,
+        "+app_update", appid
+    ])
+    
+    if validate:
+        cmd_args.append("validate")
+    
+    cmd_args.append("+quit")
+    
+    # Generate a unique download ID
+    download_id = f"dl_{appid}_{int(time.time())}"
+    
+    # Log the command for debugging
+    cmd_str = ' '.join(cmd_args)
+    logging.info(f"Download command: {cmd_str}")
+    
+    # Add to active downloads
     with queue_lock:
-        if len(active_downloads) == 0:
-            # Start download immediately
-            thread = threading.Thread(
-                target=start_download,
-                args=(username, password, guard_code, anonymous, appid, validate)
+        active_downloads[download_id] = {
+            "appid": appid,
+            "name": game_name,
+            "start_time": datetime.now(),
+            "progress": 0.0,
+            "status": "Starting",
+            "eta": "Calculating...",
+            "speed": "0 KB/s",
+            "size_downloaded": "0 MB",
+            "total_size": "Unknown"
+        }
+    
+    # Start the process in a thread to avoid blocking UI
+    def run_download():
+        try:
+            logging.info(f"Starting download process for {download_id}")
+            
+            # Update status
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = "Running SteamCMD..."
+            
+            # Run the command
+            process = subprocess.Popen(
+                cmd_args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
             )
-            thread.daemon = True
-            thread.start()
-            return f"Started download for {game_name}"
-        else:
-            # Add to queue
-            download_queue.append({
-                "username": username,
-                "password": password,
-                "guard_code": guard_code,
-                "anonymous": anonymous,
-                "appid": appid,
-                "validate": validate
-            })
-            position = len(download_queue)
-            return f"Download for {game_name} queued at position {position}"
+            
+            # Log the PID
+            logging.info(f"SteamCMD process started with PID: {process.pid}")
+            
+            # Read output
+            for line in process.stdout:
+                logging.info(f"SteamCMD output: {line.strip()}")
+                
+                # Update status with progress (very basic)
+                with queue_lock:
+                    if download_id in active_downloads:
+                        if "progress" in line.lower():
+                            active_downloads[download_id]["status"] = line.strip()
+                            
+                            # Try to extract percentage
+                            match = re.search(r'(\d+\.\d+)%', line)
+                            if match:
+                                active_downloads[download_id]["progress"] = float(match.group(1))
+            
+            # Process completed
+            return_code = process.wait()
+            logging.info(f"Download process completed with return code: {return_code}")
+            
+            # Update final status
+            with queue_lock:
+                if download_id in active_downloads:
+                    if return_code == 0:
+                        active_downloads[download_id]["status"] = "Completed"
+                        active_downloads[download_id]["progress"] = 100.0
+                    else:
+                        active_downloads[download_id]["status"] = f"Failed (code: {return_code})"
+            
+        except Exception as e:
+            logging.error(f"Error in download thread: {str(e)}", exc_info=True)
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = f"Error: {str(e)}"
+    
+    # Start the download thread
+    thread = threading.Thread(target=run_download)
+    thread.daemon = True
+    thread.start()
+    
+    return f"Started download for {game_name} (ID: {download_id})"
 
 def start_download(username, password, guard_code, anonymous, appid, validate_download):
     """Start a download using SteamCMD."""
@@ -1165,7 +1244,7 @@ def create_download_games_tab():
         
         # Connect this to your download button
         download_btn.click(
-            fn=download_game_simple,  # Use our simpler function
+            fn=queue_download,  # Make sure we use the existing queue_download function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
         )
