@@ -1091,17 +1091,17 @@ def create_download_games_tab():
                 
                 # Create HTML display for game preview
                 html = f"""
-                <div style="display: flex; flex-direction: column; gap: 15px; padding: 15px; border-radius: 8px; background: white; box-shadow: 0 1px 5px rgba(0,0,0,0.1);">
-                    <h2 style="margin: 0; color: #303030; font-size: 24px;">{name}</h2>
-                    <div style="color: #555; font-size: 14px;"><strong>AppID:</strong> {appid}</div>
-                    <div style="width: 100%; max-width: 460px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                <div style="display: flex; flex-direction: column; gap: 15px; padding: 15px; border-radius: 8px; background: #2e2e2e; color: white; box-shadow: 0 1px 5px rgba(0,0,0,0.2);">
+                    <h2 style="margin: 0; color: white; font-size: 24px;">{name}</h2>
+                    <div style="color: #e0e0e0; font-size: 14px;"><strong>AppID:</strong> {appid}</div>
+                    <div style="width: 100%; max-width: 460px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                         <img src="{header_image}" style="width: 100%; height: auto; display: block;" 
                              onerror="this.onerror=null; this.src='https://store.cloudflare.steamstatic.com/public/shared/images/responsive/header_logo.png';" />
                     </div>
-                    <div style="background: #fafafa; padding: 12px; border-radius: 4px; line-height: 1.4; border-left: 3px solid #2e2e2e;">
-                        <strong style="color: #2e2e2e;">Description:</strong> {description}
+                    <div style="background: #3d3d3d; padding: 12px; border-radius: 4px; line-height: 1.4; border-left: 3px solid #6e6e6e;">
+                        <strong style="color: #f0f0f0;">Description:</strong> {description}
                     </div>
-                    <div style="display: inline-block; background: #f0f0f0; color: #2e2e2e; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
+                    <div style="display: inline-block; background: #3d3d3d; color: white; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                             <polyline points="7 10 12 15 17 10"></polyline>
