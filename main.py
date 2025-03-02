@@ -1244,7 +1244,7 @@ def create_download_games_tab():
         
         # Connect this to your download button
         download_btn.click(
-            fn=emergency_download_game,  # Use our emergency function
+            fn=download_game,  # Use your existing function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
             outputs=[download_status]
         )
@@ -2180,4 +2180,72 @@ def emergency_download_game(username, password, guard_code, anonymous, game_inpu
             
     except Exception as e:
         logging.error(f"Emergency download error: {str(e)}", exc_info=True)
+        return f"Error starting download: {str(e)}"
+
+def download_game(username, password, guard_code, anonymous, game_input, validate_download):
+    """Start a game download using SteamCMD."""
+    try:
+        logging.info(f"Starting direct download for: {game_input}")
+        
+        # Extract AppID
+        appid = parse_game_input(game_input)
+        if not appid:
+            return "Error: Invalid game input. Could not extract AppID."
+        
+        logging.info(f"Direct download: extracted AppID {appid}")
+        
+        # Create a unique download folder
+        download_folder = os.path.join(STEAM_DOWNLOAD_PATH, f"steamapps/common/app_{appid}")
+        os.makedirs(download_folder, exist_ok=True)
+        
+        logging.info(f"Direct download: created folder {download_folder}")
+        
+        # Build SteamCMD command
+        steamcmd_path = get_steamcmd_path()
+        
+        if not os.path.exists(steamcmd_path):
+            return f"Error: SteamCMD not found at {steamcmd_path}"
+        
+        # Basic command
+        cmd_args = [steamcmd_path]
+        
+        if anonymous:
+            cmd_args.extend(["+login", "anonymous"])
+        else:
+            cmd_args.extend(["+login", username, password])
+            if guard_code:
+                # You'd need to handle Steam Guard code here
+                pass
+        
+        cmd_args.extend([
+            "+force_install_dir", download_folder,
+            "+app_update", appid
+        ])
+        
+        if validate_download:
+            cmd_args.append("validate")
+        
+        cmd_args.append("+quit")
+        
+        cmd_str = ' '.join(cmd_args)
+        logging.info(f"Direct download: command prepared (anonymized): {cmd_str if anonymous else '[CREDENTIALS HIDDEN]'}")
+        
+        # Start the process in a way that doesn't block
+        if platform.system() == "Windows":
+            process = subprocess.Popen(cmd_args)
+            logging.info(f"Direct download: started Windows process with PID {process.pid}")
+        else:
+            # For Linux/Mac, use subprocess.Popen with start_new_session
+            process = subprocess.Popen(
+                cmd_args,
+                stdout=open(os.path.join(download_folder, "output.log"), "w"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
+            logging.info(f"Direct download: started Linux process with PID {process.pid}")
+        
+        return f"Download started for AppID {appid}. Check folder: {download_folder}"
+            
+    except Exception as e:
+        logging.error(f"Download error: {str(e)}", exc_info=True)
         return f"Error starting download: {str(e)}"
