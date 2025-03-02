@@ -588,6 +588,7 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         
         # Prepare SteamCMD command
         steamcmd_path = get_steamcmd_path()
+        logging.info(f"Using SteamCMD path: {steamcmd_path}")
         
         # Verify SteamCMD exists
         if not os.path.exists(steamcmd_path):
@@ -608,9 +609,12 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         
         if anonymous:
             cmd_args.extend(["+login", "anonymous"])
+            logging.info("Using anonymous login")
         else:
             cmd_args.extend(["+login", username, password])
+            logging.info(f"Using login for user: {username}")
             if guard_code:
+                logging.info("Steam Guard code provided")
                 # In a real implementation, you would handle Steam Guard codes
                 pass
         
@@ -625,28 +629,57 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         cmd_args.append("+quit")
         
         # Start the SteamCMD process
-        logging.info(f"Executing command: {' '.join(cmd_args)}")
+        cmd_string = ' '.join(cmd_args)
+        logging.info(f"Executing command: {cmd_string}")
         
-        process = subprocess.Popen(
-            cmd_args,
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1  # Line buffered
-        )
-        
-        # Update process info
-        with queue_lock:
-            if download_id in active_downloads:
-                active_downloads[download_id]["process"] = process
-                active_downloads[download_id]["status"] = "Downloading"
-                logging.info(f"Process started with PID: {process.pid}")
-        
-        # Process output and monitor progress
-        monitor_download(download_id, process)
+        try:
+            # Test if SteamCMD is executable
+            if not os.access(steamcmd_path, os.X_OK) and platform.system() != "Windows":
+                logging.warning(f"SteamCMD is not executable. Attempting to set execute permission.")
+                os.chmod(steamcmd_path, 0o755)
+            
+            # Start process and capture output
+            logging.info("Starting subprocess.Popen...")
+            process = subprocess.Popen(
+                cmd_args,
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1  # Line buffered
+            )
+            
+            logging.info(f"Process started with PID: {process.pid}")
+            
+            # Update process info
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["process"] = process
+                    active_downloads[download_id]["status"] = "Downloading"
+                    logging.info(f"Updated active_downloads with process info")
+            
+            # Process output and monitor progress in a separate thread
+            logging.info("Starting monitoring thread...")
+            monitor_thread = threading.Thread(
+                target=monitor_download,
+                args=(download_id, process)
+            )
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            logging.info(f"Monitoring thread started for download {download_id}")
+            
+        except Exception as e:
+            logging.error(f"Error starting SteamCMD process: {str(e)}", exc_info=True)
+            
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = f"Failed to start SteamCMD: {str(e)}"
+                    # Keep the failed download visible for a while
+                    threading.Timer(30, lambda: remove_completed_download(download_id)).start()
+            
+            process_download_queue()
         
     except Exception as e:
-        logging.error(f"Error starting download {download_id}: {str(e)}", exc_info=True)
+        logging.error(f"Error in start_download for {download_id}: {str(e)}", exc_info=True)
         
         with queue_lock:
             if download_id in active_downloads:
@@ -661,16 +694,49 @@ def monitor_download(download_id, process):
     logging.info(f"Starting to monitor download {download_id}")
     
     try:
+        # First update to show activity
+        with queue_lock:
+            if download_id in active_downloads:
+                active_downloads[download_id]["status"] = "Initializing SteamCMD..."
+        
         last_update_time = time.time()
-        progress_pattern = re.compile(r'progress: (\d+\.\d+) %')
-        speed_pattern = re.compile(r'(\d+\.\d+) ([KMG]B)/s')
+        progress_pattern = re.compile(r'progress:?\s*(\d+\.\d+)\s*%')
+        speed_pattern = re.compile(r'(\d+\.\d+)\s*([KMG]B)/s')
+        eta_pattern = re.compile(r'ETA:?\s*(\d+\w\s*\d+\w|\d+:\d+:\d+)')
+        
+        # Log the first 10 lines to help with debugging
+        initial_lines = []
+        line_count = 0
+        
+        # Check if process is still running
+        if process.poll() is not None:
+            logging.error(f"Process for download {download_id} exited prematurely with code {process.returncode}")
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = f"Failed - SteamCMD exited with code {process.returncode}"
+            return
+        
+        logging.info(f"Starting to read output for download {download_id}")
+        
+        if not process.stdout:
+            logging.error(f"Process stdout is None for download {download_id}")
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["status"] = "Failed - Cannot read SteamCMD output"
+            return
         
         for line in process.stdout:
             current_time = time.time()
-            line = line.strip()
+            line = line.strip() if line else ""
+            
+            # Collect initial lines for debugging
+            if line_count < 10:
+                initial_lines.append(line)
+                line_count += 1
+                logging.info(f"SteamCMD initial output line {line_count}: {line}")
             
             # Log the output line every 5 seconds or if it contains important info
-            if current_time - last_update_time > 5 or "error" in line.lower() or "progress" in line.lower():
+            if current_time - last_update_time > 5 or any(kw in line.lower() for kw in ["error", "progress", "eta", "download"]):
                 logging.info(f"Download {download_id} output: {line}")
                 last_update_time = current_time
             
@@ -678,6 +744,7 @@ def monitor_download(download_id, process):
             progress_match = progress_pattern.search(line)
             if progress_match:
                 progress = float(progress_match.group(1))
+                logging.info(f"Detected progress: {progress}%")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["progress"] = progress
@@ -688,12 +755,23 @@ def monitor_download(download_id, process):
             if speed_match:
                 speed_value = float(speed_match.group(1))
                 speed_unit = speed_match.group(2)
+                logging.info(f"Detected speed: {speed_value} {speed_unit}/s")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["speed"] = f"{speed_value} {speed_unit}/s"
             
+            # Extract ETA information
+            eta_match = eta_pattern.search(line)
+            if eta_match:
+                eta = eta_match.group(1)
+                logging.info(f"Detected ETA: {eta}")
+                with queue_lock:
+                    if download_id in active_downloads:
+                        active_downloads[download_id]["eta"] = eta
+            
             # Check for successful completion
             if "Success! App" in line and "fully installed" in line:
+                logging.info(f"Download {download_id} completed successfully")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["progress"] = 100.0
@@ -701,9 +779,13 @@ def monitor_download(download_id, process):
             
             # Check for errors
             if "ERROR!" in line:
+                logging.error(f"Error in download {download_id}: {line}")
                 with queue_lock:
                     if download_id in active_downloads:
                         active_downloads[download_id]["status"] = f"Error: {line}"
+        
+        # If we got here, the process has completed
+        logging.info(f"Finished reading output for download {download_id}")
         
         # Process completed, check return code
         return_code = process.wait()
@@ -717,6 +799,8 @@ def monitor_download(download_id, process):
                         active_downloads[download_id]["status"] = "Completed"
                 else:
                     active_downloads[download_id]["status"] = f"Failed (Code: {return_code})"
+                    if initial_lines:
+                        logging.error(f"First {len(initial_lines)} lines of output: {initial_lines}")
         
         # Keep completed download visible for a while, then remove it
         threading.Timer(60, lambda: remove_completed_download(download_id)).start()
@@ -788,10 +872,31 @@ def cancel_download(download_id):
 
 def get_download_status():
     """Get the current status of downloads and queue."""
-    active = []
+    result = {
+        "active": [],
+        "queue": [],
+        "system": {
+            "cpu_usage": psutil.cpu_percent(),
+            "memory_usage": psutil.virtual_memory().percent,
+            "disk_usage": psutil.disk_usage('/').percent,
+            "network_speed": "N/A",
+            "uptime": str(datetime.now() - datetime.fromtimestamp(psutil.boot_time())).split('.')[0]
+        },
+        "history": []  # You can implement history tracking if needed
+    }
+    
+    # First, log the current state for debugging
+    logging.info(f"Current active_downloads: {len(active_downloads)} items")
+    for id, info in active_downloads.items():
+        status_copy = info.copy()
+        if "process" in status_copy:
+            del status_copy["process"]  # Remove process object before logging
+        logging.info(f"Download {id} status: {status_copy}")
+    
+    # Now populate the result
     with queue_lock:
         for id, info in active_downloads.items():
-            active.append({
+            result["active"].append({
                 "id": id,
                 "name": info["name"],
                 "appid": info["appid"],
@@ -805,31 +910,15 @@ def get_download_status():
             })
         
         # Queue information
-        queue = []
         for i, download in enumerate(download_queue):
-            queue_item = {
+            result["queue"].append({
                 "position": i + 1,
                 "appid": download["appid"],
                 "name": f"Game (AppID: {download['appid']})",
                 "validate": download["validate"]
-            }
-            queue.append(queue_item)
+            })
     
-    # System statistics
-    system = {
-        "cpu_usage": psutil.cpu_percent(),
-        "memory_usage": psutil.virtual_memory().percent,
-        "disk_usage": psutil.disk_usage('/').percent,
-        "network_speed": "N/A",
-        "uptime": str(datetime.now() - datetime.fromtimestamp(psutil.boot_time())).split('.')[0]
-    }
-    
-    return {
-        "active": active,
-        "queue": queue,
-        "system": system,
-        "history": []  # You can implement history tracking if needed
-    }
+    return result
 
 def remove_from_queue(position):
     """Remove a download from the queue by position."""
@@ -1783,3 +1872,50 @@ def check_game(game_id):
         image_url,  # Game image
         f"Game found: {game_info.get('name', 'Unknown Game')} (AppID: {details['appid']})"  # Download status
     )
+
+def test_steamcmd():
+    """Run a simple test of SteamCMD functionality."""
+    steamcmd_path = get_steamcmd_path()
+    logging.info(f"Testing SteamCMD at path: {steamcmd_path}")
+    
+    if not os.path.exists(steamcmd_path):
+        logging.error(f"SteamCMD not found at {steamcmd_path}")
+        return f"Error: SteamCMD not found at {steamcmd_path}"
+    
+    # Set permissions if needed
+    if platform.system() != "Windows" and not os.access(steamcmd_path, os.X_OK):
+        try:
+            logging.info(f"Setting execute permissions on {steamcmd_path}")
+            os.chmod(steamcmd_path, 0o755)
+        except Exception as e:
+            logging.error(f"Failed to set permissions: {str(e)}")
+            return f"Error setting permissions: {str(e)}"
+    
+    # Try a simple SteamCMD command
+    cmd_args = [steamcmd_path, "+login", "anonymous", "+quit"]
+    logging.info(f"Running test command: {' '.join(cmd_args)}")
+    
+    try:
+        result = subprocess.run(
+            cmd_args,
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
+        )
+        
+        logging.info(f"SteamCMD test completed with return code: {result.returncode}")
+        
+        if result.returncode == 0:
+            logging.info("SteamCMD test was successful")
+            return "SteamCMD test successful"
+        else:
+            logging.error(f"SteamCMD test failed with output: {result.stdout}\n{result.stderr}")
+            return f"SteamCMD test failed with code {result.returncode}"
+    
+    except subprocess.TimeoutExpired:
+        logging.error("SteamCMD test timed out after 30 seconds")
+        return "Error: SteamCMD test timed out"
+    
+    except Exception as e:
+        logging.error(f"Error running SteamCMD test: {str(e)}", exc_info=True)
+        return f"Error: {str(e)}"
