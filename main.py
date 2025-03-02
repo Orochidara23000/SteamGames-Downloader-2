@@ -595,7 +595,7 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         return f"Error starting download: {str(e)}"
 
 def start_download(username, password, guard_code, anonymous, appid, validate_download):
-    """Start a download directly without using queue."""
+    """Start a download with advanced free game handling."""
     try:
         # Generate unique download ID
         download_id = f"dl_{int(time.time())}_{appid}"
@@ -603,20 +603,9 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         # Get game info for logging
         app_info = get_game_info(appid)
         game_name = app_info.get('name', f'App {appid}')
+        is_free = app_info.get('is_free', False)
         
-        logging.info(f"Starting download for {game_name} (AppID: {appid})")
-        
-        # Check if game is free-to-play when using anonymous login
-        if anonymous:
-            is_free = app_info.get('is_free', False)
-            # Also check price to ensure we catch games that might be marked incorrectly
-            price_info = app_info.get('price_overview', {})
-            has_price = price_info and price_info.get('initial', 0) > 0
-            
-            if not is_free or has_price:
-                error_msg = f"Cannot download {game_name} anonymously - requires Steam account ownership. Please use account credentials."
-                logging.error(error_msg)
-                return f"Error: {error_msg}"
+        logging.info(f"Starting download for {game_name} (AppID: {appid}, Free: {is_free})")
         
         # Create download directory
         download_dir = get_default_download_location()
@@ -627,25 +616,42 @@ def start_download(username, password, guard_code, anonymous, appid, validate_do
         steamcmd = get_steamcmd_path()
         if not steamcmd:
             return f"Error: SteamCMD not found"
-        
-        cmd = [steamcmd, "+@NoPromptForPassword 1"]
-        
-        if anonymous:
-            cmd.append("+login anonymous")
-        else:
-            cmd.append(f"+login {username} {password}")
-            if guard_code:
-                cmd.append(guard_code)
-        
-        cmd.extend([
-            f"+app_update {appid}",
-            f"+force_install_dir {app_dir}"
-        ])
-        
-        if validate_download:
-            cmd.append("validate")
             
-        cmd.append("+quit")
+        # Create a script file for more reliable command execution
+        script_path = os.path.join(os.path.dirname(steamcmd), f"download_{appid}.txt")
+        
+        with open(script_path, "w") as f:
+            f.write("@NoPromptForPassword 1\n")
+            
+            if anonymous and is_free:
+                f.write("login anonymous\n")
+            else:
+                if guard_code:
+                    f.write(f"login {username} {password} {guard_code}\n")
+                else:
+                    f.write(f"login {username} {password}\n")
+            
+            # Special handling for free games
+            if is_free:
+                f.write(f"app_license_request {appid}\n")
+                
+            f.write(f"force_install_dir {app_dir}\n")
+            f.write(f"app_update {appid}")
+            
+            if validate_download:
+                f.write(" validate")
+                
+            f.write("\n")
+            f.write("quit\n")
+        
+        # Make the script executable
+        os.chmod(script_path, 0o755)
+        
+        # Execute SteamCMD with the script
+        cmd = [steamcmd, f"+runscript {script_path}"]
+        
+        # Log command (with credentials redacted)
+        logging.info(f"Running SteamCMD with script: {script_path}")
         
         # Start the process
         cmd_str = " ".join(cmd)
@@ -1670,6 +1676,24 @@ def create_gradio_interface():
                 - For paid games, ensure your credentials are correct
                 - Look for detailed error messages in the Downloads tab
                 """)
+                gr.Markdown("""
+### Important Notes on Steam Downloads
+
+1. **Free games still require "ownership"**:
+   - Even free games need to be "added to library" on a Steam account first
+   - Try adding the game to your library via the Steam client or website before downloading
+
+2. **Account region matters**:
+   - Games with regional restrictions may show as "free" but still be unavailable
+
+3. **Some games have additional requirements**:
+   - Age verification
+   - Account verification
+   - EULA acceptance
+
+If you encounter "No subscription" errors with free games, try manually adding
+the game to your Steam library first, then attempt the download again.
+""")
         
         # Start background thread for processing queue
         queue_thread = threading.Thread(target=queue_processor)
