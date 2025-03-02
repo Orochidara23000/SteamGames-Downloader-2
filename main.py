@@ -1018,6 +1018,9 @@ def create_download_games_tab():
                 game_status = gr.Markdown("")
                 check_button = gr.Button("Check Game", variant="secondary")
                 
+                # Combined game preview using HTML
+                game_preview_html = gr.HTML(label="Game Preview")
+                
                 # Login Section
                 gr.Markdown("### Steam Account (if required)")
                 anonymous_login = gr.Checkbox(
@@ -1043,84 +1046,40 @@ def create_download_games_tab():
                 download_btn = gr.Button("Download Game", variant="primary")
                 download_status = gr.Markdown("")
                 
-            with gr.Column(scale=1):
-                # Game Preview
-                gr.Markdown("### Game Preview")
-                game_image = gr.Image(label="Game Image", type="filepath", interactive=False)
-                game_title = gr.Textbox(label="Title", interactive=False)
-                game_description = gr.Textbox(label="Description", interactive=False, lines=4)
-                game_size = gr.Textbox(label="Approximate Size", interactive=False)
-                
         # Define function handlers
         def handle_login_toggle(anonymous):
             return not anonymous
             
         def handle_game_check(input_text):
-            """Check game details and return preview information."""
+            """Check game details and return preview information as HTML."""
             try:
                 if not input_text:
-                    return {}, "Please enter a game URL, ID, or title", None, "", "", ""
+                    return {}, "Please enter a game URL, ID, or title", "<div>No game selected</div>"
                 
-                print(f"Checking game: {input_text}")  # Debug print
+                print(f"Checking game: {input_text}")
                 
-                # For direct debug, if the user enters the AppID
-                if input_text.strip() == "1677740":
-                    # Fixed image URL with http instead of https
-                    header_image = "http://cdn.akamai.steamstatic.com/steam/apps/1677740/header.jpg"
-                    name = "Stumble Guys"
-                    description = "Race through obstacle courses against up to 32 players online. Run, jump and dash to the finish line until the best player takes the crown!"
-                    
-                    # Try downloading the image to a local file
-                    local_image_path = "/tmp/game_image.jpg"
-                    try:
-                        import urllib.request
-                        urllib.request.urlretrieve(header_image, local_image_path)
-                        print(f"Image saved to {local_image_path}")
-                        # Use local file path instead of URL
-                        image_to_return = local_image_path
-                    except Exception as img_error:
-                        print(f"Failed to save image locally: {str(img_error)}")
-                        image_to_return = header_image  # Fall back to URL
-                        
-                    return {"appid": 1677740}, f"✅ Game found: {name} (AppID: 1677740)", image_to_return, name, description, "Unknown size"
-                
-                # Regular processing for other inputs
+                # Parse the game input
                 result = parse_game_input(input_text)
                 
                 if isinstance(result, tuple):
                     if len(result) == 2:
                         appid, app_info = result
                     else:
-                        return {}, "❌ Error: Unexpected result format", None, "", "", ""
+                        return {}, "❌ Error: Unexpected result format", "<div>Error processing game</div>"
                 else:
                     if isinstance(result, str) and "Error" in result:
-                        return {}, f"❌ {result}", None, "", "", ""
+                        return {}, f"❌ {result}", "<div>Error: {result}</div>"
                     appid = result
                     app_info = get_game_info(appid) if appid else {}
                 
                 if not appid or not app_info:
-                    return {}, "❌ Game not found", None, "", "", ""
+                    return {}, "❌ Game not found", "<div>Game not found</div>"
                 
-                # Direct access to properties (no 'data' nesting)
+                # Direct access to properties
                 name = app_info.get('name', 'Unknown Game')
                 description = app_info.get('short_description', 'No description available')
-                header_image = app_info.get('header_image', None)
+                header_image = app_info.get('header_image', '')
                 
-                # Try to save the image locally
-                local_image_path = f"/tmp/game_image_{appid}.jpg"
-                if header_image:
-                    try:
-                        import urllib.request
-                        urllib.request.urlretrieve(header_image, local_image_path)
-                        print(f"Image saved to {local_image_path}")
-                        # Use local file path instead of URL
-                        image_to_return = local_image_path
-                    except Exception as img_error:
-                        print(f"Failed to save image locally: {str(img_error)}")
-                        image_to_return = header_image  # Fall back to URL
-                else:
-                    image_to_return = None
-                    
                 # Get size if possible
                 size_text = "Size information unavailable"
                 try:
@@ -1130,21 +1089,35 @@ def create_download_games_tab():
                 except Exception as e:
                     print(f"Size error: {str(e)}")
                 
-                print(f"Returning: name={name}, image={image_to_return}, desc={description[:30]}...")
+                # Create HTML display for game preview
+                html = f"""
+                <div style="display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h3>{name}</h3>
+                    <div><strong>AppID:</strong> {appid}</div>
+                    <div style="max-width: 100%;">
+                        <img src="{header_image}" style="max-width: 100%; height: auto;" 
+                             onerror="this.onerror=null; this.src='https://store.cloudflare.steamstatic.com/public/shared/images/responsive/header_logo.png';" />
+                    </div>
+                    <div>
+                        <strong>Description:</strong> {description}
+                    </div>
+                    <div><strong>Size:</strong> {size_text}</div>
+                </div>
+                """
                 
-                return app_info, f"✅ Game found: {name} (AppID: {appid})", image_to_return, name, description, size_text
+                return app_info, f"✅ Game found: {name} (AppID: {appid})", html
                 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 print(f"Critical error in handle_game_check: {str(e)}")
-                return {}, f"❌ Error: {str(e)}", None, "", "", ""
+                return {}, f"❌ Error: {str(e)}", f"<div>Error: {str(e)}</div>"
         
         def handle_download(game_input_text, username_val, password_val, guard_code_val, 
                            anonymous_val, validate_val, game_info_json):
             """Handle the download button click with clear feedback."""
             try:
-                print(f"Download button clicked for: {game_input_text}")  # Debug print
+                print(f"Download button clicked for: {game_input_text}")
                 
                 if not game_input_text:
                     return "❌ Please enter a game URL, ID, or title first."
@@ -1169,7 +1142,7 @@ def create_download_games_tab():
                     return f"✅ Game added to download queue with ID: {result}"
                     
             except Exception as e:
-                print(f"Error in download handler: {str(e)}")  # Debug print
+                print(f"Error in download handler: {str(e)}")
                 return f"❌ Error: {str(e)}"
         
         # Connect UI elements
@@ -1179,31 +1152,10 @@ def create_download_games_tab():
             outputs=login_fields
         )
         
-        # Update the button click connection
         check_button.click(
             fn=handle_game_check,
-            inputs=[game_input],
-            outputs=[game_info, game_status, game_image, game_title, game_description, game_size]
-        )
-        
-        # Add a separate event to update the UI elements when game_info changes
-        def update_game_preview(game_info_json):
-            if not game_info_json or 'ui_data' not in game_info_json:
-                return None, "", "", ""
-            
-            ui_data = game_info_json['ui_data']
-            return (
-                ui_data.get('header_image'),
-                ui_data.get('name', ''),
-                ui_data.get('description', ''),
-                ui_data.get('size_text', '')
-            )
-        
-        # Connect the game_info change event to update the UI
-        game_info.change(
-            fn=update_game_preview,
-            inputs=game_info,
-            outputs=[game_image, game_title, game_description, game_size]
+            inputs=game_input,
+            outputs=[game_info, game_status, game_preview_html]
         )
         
         download_btn.click(
@@ -1220,7 +1172,6 @@ def create_download_games_tab():
             outputs=download_status
         )
         
-    # Return the necessary UI elements instead of None
     return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
