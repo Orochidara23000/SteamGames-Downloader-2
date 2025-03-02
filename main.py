@@ -1056,9 +1056,12 @@ def create_download_games_tab():
             return not anonymous
             
         def handle_game_check(input_text):
-            """Simplified debugging function for game checking."""
+            """Check game details and return preview information."""
             try:
-                print(f"Checking game: {input_text}")
+                if not input_text:
+                    return {}, "Please enter a game URL, ID, or title", None, "", "", ""
+                
+                print(f"Checking game: {input_text}")  # Debug print
                 
                 # For direct debug, if the user enters just the AppID we know is problematic
                 if input_text.strip() == "1677740":
@@ -1067,14 +1070,7 @@ def create_download_games_tab():
                     print(f"Direct API result for 1677740: {app_info}")
                     
                     # Try to manually construct a result
-                    return {
-                        "appid": 1677740,
-                        "data": {
-                            "name": "Stumble Guys",
-                            "short_description": "Stumble Guys is a massively multiplayer party knockout game with up to 32 players online who race through obstacle courses.",
-                            "header_image": "https://cdn.akamai.steamstatic.com/steam/apps/1677740/header.jpg"
-                        }
-                    }, "✅ Game found: Stumble Guys (AppID: 1677740)", "https://cdn.akamai.steamstatic.com/steam/apps/1677740/header.jpg", "Stumble Guys", "Stumble Guys is a massively multiplayer party knockout game with up to 32 players online who race through obstacle courses.", "Unknown size"
+                    return app_info, "✅ Game found: Stumble Guys (AppID: 1677740)", app_info.get('header_image'), app_info.get('name'), app_info.get('short_description'), "Unknown size"
                 
                 # Regular processing for other inputs
                 result = parse_game_input(input_text)
@@ -1091,15 +1087,14 @@ def create_download_games_tab():
                     app_info = get_game_info(appid) if appid else {}
                 
                 print(f"AppID: {appid}, App info type: {type(app_info)}")
-                print(f"App info content: {app_info}")
                 
                 if not appid or not app_info:
                     return {}, "❌ Game not found", None, "", "", ""
                 
-                game_data = app_info.get('data', {})
-                name = game_data.get('name', 'Unknown Game')
-                description = game_data.get('short_description', 'No description available')
-                header_image = game_data.get('header_image', None)
+                # The API response has data directly in the app_info object, not under a 'data' key
+                name = app_info.get('name', 'Unknown Game')
+                description = app_info.get('short_description', 'No description available')
+                header_image = app_info.get('header_image', None)
                 
                 # Get size if possible
                 size_text = "Size information unavailable"
