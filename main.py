@@ -1003,13 +1003,21 @@ def create_download_games_tab():
                     info="Use for free games and demos. For paid games, disable and provide credentials."
                 )
                 
-                with gr.Column(visible=False) as login_fields:
-                    username = gr.Textbox(label="Steam Username")
-                    password = gr.Textbox(label="Steam Password", type="password")
-                    guard_code = gr.Textbox(
-                        label="Steam Guard Code (if enabled)",
-                        placeholder="Leave empty if not needed"
-                    )
+                # Use individual components with visible parameter instead of a Column
+                username = gr.Textbox(
+                    label="Steam Username", 
+                    visible=False
+                )
+                password = gr.Textbox(
+                    label="Steam Password", 
+                    type="password", 
+                    visible=False
+                )
+                guard_code = gr.Textbox(
+                    label="Steam Guard Code (if enabled)",
+                    placeholder="Leave empty if not needed",
+                    visible=False
+                )
                 
                 validate_download = gr.Checkbox(
                     label="Validate Download", 
@@ -1022,7 +1030,9 @@ def create_download_games_tab():
                 
         # Define function handlers
         def handle_login_toggle(anonymous):
-            return not anonymous
+            """Toggle visibility of login fields"""
+            # Return visibility for each field
+            return [not anonymous, not anonymous, not anonymous]
             
         def handle_game_check(input_text):
             """Check game details and return preview information as HTML."""
@@ -1142,7 +1152,7 @@ def create_download_games_tab():
         anonymous_login.change(
             fn=handle_login_toggle,
             inputs=anonymous_login,
-            outputs=login_fields
+            outputs=[username, password, guard_code]  # Connect to individual components
         )
         
         check_button.click(
