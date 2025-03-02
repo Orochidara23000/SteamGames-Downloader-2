@@ -573,6 +573,15 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         
         # Prepare SteamCMD command
         steamcmd_path = get_steamcmd_path()
+        
+        # Verify SteamCMD exists
+        if not os.path.exists(steamcmd_path):
+            error_msg = f"Error: SteamCMD not found at {steamcmd_path}"
+            logging.error(error_msg)
+            return error_msg
+        
+        logging.info(f"Using SteamCMD at: {steamcmd_path}")
+        
         cmd_args = [steamcmd_path]
         
         if anonymous:
@@ -605,32 +614,94 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
             }
         
         # Start download process
-        logging.info(f"Starting SteamCMD with command: {' '.join(cmd_args)}")
-        process = subprocess.Popen(
-            cmd_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
+        cmd_string = ' '.join(cmd_args)
+        logging.info(f"Starting SteamCMD with command: {cmd_string}")
         
-        # Update the process in our tracking dict
-        with queue_lock:
-            if download_id in active_downloads:
-                active_downloads[download_id]["process"] = process
-                active_downloads[download_id]["status"] = "Downloading"
-        
-        # Start thread to monitor download progress
-        monitor_thread = threading.Thread(
-            target=monitor_download_progress,
-            args=(download_id, process)
-        )
-        monitor_thread.daemon = True
-        monitor_thread.start()
-        
-        return f"Download started for AppID: {appid} (ID: {download_id})"
+        try:
+            process = subprocess.Popen(
+                cmd_args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1  # Line buffered
+            )
+            logging.info(f"SteamCMD process started with PID: {process.pid}")
+            
+            # Update the process in our tracking dict
+            with queue_lock:
+                if download_id in active_downloads:
+                    active_downloads[download_id]["process"] = process
+                    active_downloads[download_id]["status"] = "Downloading"
+                    logging.info(f"Updated active_downloads entry for {download_id} with status 'Downloading'")
+            
+            # Define monitor_download_progress function inline if it doesn't exist
+            def monitor_download_progress(download_id, process):
+                logging.info(f"Starting progress monitoring for download {download_id}")
+                try:
+                    for line in process.stdout:
+                        line = line.strip()
+                        logging.debug(f"SteamCMD output: {line}")
+                        
+                        # Parse progress information
+                        progress_info = parse_progress(line)
+                        
+                        # Update active_downloads with progress information
+                        with queue_lock:
+                            if download_id in active_downloads:
+                                if "progress" in progress_info:
+                                    active_downloads[download_id]["progress"] = progress_info["progress"]
+                                if "status" in progress_info:
+                                    active_downloads[download_id]["status"] = progress_info["status"]
+                                if "eta" in progress_info:
+                                    active_downloads[download_id]["eta"] = progress_info["eta"]
+                                if "speed" in progress_info:
+                                    active_downloads[download_id]["speed"] = f"{progress_info['speed']} {progress_info.get('speed_unit', 'KB/s')}"
+                    
+                    # Wait for process to complete
+                    return_code = process.wait()
+                    logging.info(f"SteamCMD process for download {download_id} completed with return code {return_code}")
+                    
+                    # Update status based on return code
+                    with queue_lock:
+                        if download_id in active_downloads:
+                            if return_code == 0:
+                                active_downloads[download_id]["status"] = "Completed"
+                                active_downloads[download_id]["progress"] = 100.0
+                            else:
+                                active_downloads[download_id]["status"] = f"Failed (Code: {return_code})"
+                    
+                    # Start next download in queue
+                    process_download_queue()
+                    
+                except Exception as e:
+                    logging.error(f"Error monitoring download {download_id}: {str(e)}", exc_info=True)
+                    with queue_lock:
+                        if download_id in active_downloads:
+                            active_downloads[download_id]["status"] = f"Error: {str(e)}"
+                    
+                    # Start next download in queue
+                    process_download_queue()
+            
+            # Start thread to monitor download progress
+            monitor_thread = threading.Thread(
+                target=monitor_download_progress,
+                args=(download_id, process)
+            )
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            logging.info(f"Started monitoring thread for download {download_id}")
+            
+            return f"Download started for AppID: {appid} (ID: {download_id})"
+            
+        except Exception as e:
+            logging.error(f"Failed to start SteamCMD process: {str(e)}", exc_info=True)
+            with queue_lock:
+                if download_id in active_downloads:
+                    del active_downloads[download_id]
+            return f"Error starting download: {str(e)}"
     
     except Exception as e:
-        logging.error(f"Error during download: {str(e)}", exc_info=True)
+        logging.error(f"Error during download setup: {str(e)}", exc_info=True)
         return f"Error: {str(e)}"
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
