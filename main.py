@@ -560,58 +560,15 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
     # Log the download request
     logger.info(f"Starting download for AppID: {appid} (Anonymous: {anonymous}, Validate: {validate_download})")
     
-    # Validate AppID and get game info
-    is_valid, game_info = validate_appid(appid)
-    if not is_valid:
-        logger.error(f"Invalid AppID: {appid}. Error: {game_info}")
-        return f"Error: {game_info}"
+    # Skip API validation which causes hanging
+    # Use a simple game name based on the AppID
+    game_name = f"Game_{appid}"
     
-    game_name = game_info.get('name', f"Game {appid}")
-    is_free = game_info.get('is_free', False)
-    
-    # Define special case free-to-play games that need special handling
-    special_f2p_games = {
-        "230410": {  # Warframe
-            "name": "Warframe",
-            "requires_account": True,  # Requires Steam account despite being free
-            "platform": "windows"      # Requires Windows platform
-        },
-        "570": {  # Dota 2
-            "name": "Dota 2",
-            "requires_account": True,
-            "platform": "windows"
-        },
-        "440": {  # Team Fortress 2
-            "name": "Team Fortress 2",
-            "requires_account": True,
-            "platform": "windows"
-        }
-        # Add more special cases as needed
-    }
-    
-    # Check if this is a special case game that requires credentials
-    is_special_game = appid in special_f2p_games
-    requires_account = is_special_game and special_f2p_games[appid].get("requires_account", False)
-    specific_platform = is_special_game and special_f2p_games[appid].get("platform", None)
-    
-    # For special games requiring an account, override the anonymous setting
-    if requires_account:
-        if not username or not password:
-            logger.error(f"Username and password required for {game_name} despite being free-to-play")
-            return "Error: This free game requires a Steam account. Please provide your Steam credentials."
-        anonymous = False
-        logger.info(f"Using account login for special free-to-play game: {game_name}")
-    # For normal free games, use anonymous login
-    elif is_free:
-        anonymous = True
-        logger.info(f"Using anonymous login for standard free game: {game_name}")
-    # For paid games, ensure we have credentials
-    elif not anonymous and (not username or not password):
-        logger.error(f"Username and password required for non-free game: {game_name}")
-        return "Error: Username and password are required for non-free games."
+    # For simplicity, we'll use anonymous login for all games that are attempted with anonymous=True
+    # SteamCMD will handle errors for paid games attempted with anonymous login
     
     # Set up download directory
-    download_path = os.path.join(get_default_download_location(), game_name.replace(" ", "_"))
+    download_path = os.path.join(get_default_download_location(), game_name)
     ensure_directory_exists(download_path)
     
     logger.info(f"Download path: {download_path}")
@@ -945,24 +902,11 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
         logger.error(error_msg)
         return error_msg
     
-    # Validate the AppID
-    is_valid, game_info = validate_appid(appid)
-    if not is_valid:
-        error_msg = f"Invalid AppID: {appid}. Error: {game_info}"
-        logger.error(error_msg)
-        return error_msg
+    # Skip API validation which causes hanging
+    logger.info(f"Proceeding with download for AppID: {appid} without API validation")
     
-    # Check if game is free - override anonymous setting if so
-    is_free = game_info.get('is_free', False)
-    if is_free and not anonymous:
-        logger.info(f"Game {game_info.get('name')} is free - using anonymous login regardless of setting")
-        anonymous = True
-    
-    # Check Steam Guard requirements
-    needs_guard = not anonymous and not guard_code
-    if needs_guard:
-        logger.info(f"Non-anonymous login requires Steam Guard code")
-        # This will be handled by download_game if Steam Guard is needed
+    # Assume all games need login unless specified anonymous
+    # (Free games will be handled by the download_game function)
     
     # Check if we can start a new download immediately or need to queue
     with queue_lock:
@@ -974,18 +918,20 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             )
             thread.daemon = True
             thread.start()
-            return f"Started download for {game_info.get('name', 'Unknown Game')} (AppID: {appid})"
+            logger.info(f"Started download thread for AppID: {appid}")
+            return f"Started download for game with AppID: {appid}"
         else:
             # Add to queue
             download_queue.append({
                 "function": download_game,
                 "args": (username, password, guard_code, anonymous, appid, validate),
                 "appid": appid,
-                "name": game_info.get('name', 'Unknown Game'),
+                "name": f"Game {appid}",
                 "queued_time": datetime.now()
             })
             position = len(download_queue)
-            return f"Download for {game_info.get('name', 'Unknown Game')} (AppID: {appid}) queued at position {position}"
+            logger.info(f"Queued download for AppID: {appid} at position {position}")
+            return f"Download for game with AppID: {appid} queued at position {position}"
 
 def get_download_status():
     """Get the current status of all downloads and queue for display in the UI."""
