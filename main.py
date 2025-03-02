@@ -1817,6 +1817,43 @@ def run_network_diagnostics():
     except Exception as e:
         logger.error(f"DNS resolution for Steam: Failed - {str(e)}")
 
+def verify_steamcmd():
+    """Verify SteamCMD is functional and working correctly."""
+    try:
+        steamcmd_path = get_steamcmd_path()
+        logger.info(f"Checking SteamCMD at path: {steamcmd_path}")
+        
+        if not os.path.exists(steamcmd_path):
+            logger.error(f"SteamCMD not found at expected path: {steamcmd_path}")
+            return "Error: SteamCMD not found at expected path. Please check system configuration."
+        
+        # Run SteamCMD with a simple command to verify it works
+        logger.info("Testing SteamCMD functionality...")
+        cmd = [steamcmd_path, "+quit"]
+        
+        # Run with a timeout to prevent hanging
+        process = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            text=True
+        )
+        
+        if process.returncode != 0:
+            logger.error(f"SteamCMD test failed with code {process.returncode}: {process.stderr}")
+            return f"Error: SteamCMD test failed. Output: {process.stderr}"
+        
+        logger.info("SteamCMD is installed and working correctly")
+        return "SteamCMD is functional and ready to use"
+    
+    except subprocess.TimeoutExpired:
+        logger.error("SteamCMD test timed out after 30 seconds")
+        return "Error: SteamCMD test timed out. It may be frozen or encountering issues."
+    except Exception as e:
+        logger.error(f"Error testing SteamCMD: {str(e)}", exc_info=True)
+        return f"Error testing SteamCMD: {str(e)}"
+
 # Call this on startup
 if __name__ == "__main__":
     run_network_diagnostics()
@@ -2161,86 +2198,3 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
 def forward_to_download(username, password, guard_code, anonymous, game_input, validate_download):
     """Forward function to handle circular imports"""
     return queue_download(username, password, guard_code, anonymous, game_input, validate_download)
-
-def verify_steamcmd():
-    """Verify SteamCMD is functional and working correctly."""
-    try:
-        steamcmd_path = get_steamcmd_path()
-        logger.info(f"Checking SteamCMD at path: {steamcmd_path}")
-        
-        if not os.path.exists(steamcmd_path):
-            logger.error(f"SteamCMD not found at expected path: {steamcmd_path}")
-            return "Error: SteamCMD not found at expected path. Please check system configuration."
-        
-        # Run SteamCMD with a simple command to verify it works
-        logger.info("Testing SteamCMD functionality...")
-        cmd = [steamcmd_path, "+quit"]
-        
-        # Run with a timeout to prevent hanging
-        process = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30,
-            text=True
-        )
-        
-        if process.returncode != 0:
-            logger.error(f"SteamCMD test failed with code {process.returncode}: {process.stderr}")
-            return f"Error: SteamCMD test failed. Output: {process.stderr}"
-        
-        logger.info("SteamCMD is installed and working correctly")
-        return "SteamCMD is functional and ready to use", steamcmd_path
-    
-    except subprocess.TimeoutExpired:
-        logger.error("SteamCMD test timed out after 30 seconds")
-        return "Error: SteamCMD test timed out. It may be frozen or encountering issues.", ""
-    except Exception as e:
-        logger.error(f"Error testing SteamCMD: {str(e)}", exc_info=True)
-        return f"Error testing SteamCMD: {str(e)}", ""
-
-# Update your create_gradio_interface function to replace the installation section
-# Find the section where you create the setup tab (around line 1425-1500)
-# Replace the SteamCMD installation section with:
-
-with gr.Tab("Setup"):
-    gr.Markdown("## System Setup")
-    
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### SteamCMD Verification")
-            steamcmd_status = gr.Textbox(label="SteamCMD Status", value="Not verified yet")
-            verify_btn = gr.Button("Verify SteamCMD", variant="primary")
-            
-            # Replace steamcmd_install_btn.click with:
-            verify_btn.click(
-                fn=verify_steamcmd,
-                inputs=[],
-                outputs=[steamcmd_status]
-            )
-            
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### SteamCMD Troubleshooting")
-            gr.Markdown("""
-            If SteamCMD verification fails:
-            
-            1. Check if SteamCMD is in the expected location
-            2. Ensure you have sufficient disk space
-            3. Verify network connectivity to Steam servers
-            4. Check permissions for the SteamCMD directory
-            
-            Common issues:
-            - If SteamCMD hangs, it may need to be manually terminated
-            - Network issues may prevent SteamCMD from functioning correctly
-            - Insufficient disk space can cause SteamCMD to fail
-            """)
-            
-            run_diagnostic_btn = gr.Button("Run Diagnostics")
-            diagnostic_result = gr.Textbox(label="Diagnostic Results", interactive=False)
-            
-            run_diagnostic_btn.click(
-                fn=diagnose_environment,
-                inputs=[],
-                outputs=[diagnostic_result]
-            )
