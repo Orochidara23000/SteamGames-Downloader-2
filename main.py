@@ -1163,10 +1163,11 @@ def create_download_games_tab():
             outputs=[check_game_result]
         )
         
+        # Connect this to your download button
         download_btn.click(
-            fn=queue_download,  # Call the queue_download function
+            fn=download_game_simple,  # Use our simpler function
             inputs=[username, password, guard_code, anonymous, game_input, validate_download],
-            outputs=[check_game_result]
+            outputs=[download_status]
         )
         
         return game_input, check_game_btn, download_btn, check_game_result
@@ -1873,49 +1874,167 @@ def check_game(game_id):
         f"Game found: {game_info.get('name', 'Unknown Game')} (AppID: {details['appid']})"  # Download status
     )
 
-def test_steamcmd():
-    """Run a simple test of SteamCMD functionality."""
-    steamcmd_path = get_steamcmd_path()
-    logging.info(f"Testing SteamCMD at path: {steamcmd_path}")
+def download_game_simple(username, password, guard_code, anonymous, game_input, validate_download):
+    """
+    A simplified version of the download function that runs directly in the main thread.
+    This will help identify if the issue is with threading, subprocess management, or UI updates.
+    """
+    logging.info(f"Starting simple download for game: {game_input}")
     
+    # Extract AppID from input
+    appid = parse_game_input(game_input)
+    if not appid:
+        return f"Error: Unable to extract AppID from input: {game_input}"
+    
+    # Validate login for non-anonymous downloads
+    if not anonymous and (not username or not password):
+        return "Error: Username and password are required for non-anonymous downloads."
+    
+    # Create download directory
+    download_dir = os.path.join(STEAM_DOWNLOAD_PATH, f"steamapps/common/app_{appid}")
+    os.makedirs(download_dir, exist_ok=True)
+    logging.info(f"Download directory created: {download_dir}")
+    
+    # Get SteamCMD path
+    steamcmd_path = get_steamcmd_path()
     if not os.path.exists(steamcmd_path):
-        logging.error(f"SteamCMD not found at {steamcmd_path}")
         return f"Error: SteamCMD not found at {steamcmd_path}"
     
-    # Set permissions if needed
-    if platform.system() != "Windows" and not os.access(steamcmd_path, os.X_OK):
-        try:
-            logging.info(f"Setting execute permissions on {steamcmd_path}")
-            os.chmod(steamcmd_path, 0o755)
-        except Exception as e:
-            logging.error(f"Failed to set permissions: {str(e)}")
-            return f"Error setting permissions: {str(e)}"
+    # Create command
+    cmd_args = [steamcmd_path]
     
-    # Try a simple SteamCMD command
-    cmd_args = [steamcmd_path, "+login", "anonymous", "+quit"]
-    logging.info(f"Running test command: {' '.join(cmd_args)}")
+    if anonymous:
+        cmd_args.extend(["+login", "anonymous"])
+    else:
+        cmd_args.extend(["+login", username, password])
+    
+    cmd_args.extend([
+        "+force_install_dir", download_dir,
+        "+app_update", appid
+    ])
+    
+    if validate_download:
+        cmd_args.append("validate")
+    
+    cmd_args.append("+quit")
+    
+    # Log command for debugging
+    cmd_str = ' '.join(cmd_args)
+    logging.info(f"Running command: {cmd_str}")
+    
+    # Write a status file we can check
+    status_file = os.path.join(STEAM_DOWNLOAD_PATH, f"download_status_{appid}.txt")
+    with open(status_file, 'w') as f:
+        f.write(f"Starting download for AppID: {appid}\nCommand: {cmd_str}\nTime: {datetime.now()}")
     
     try:
-        result = subprocess.run(
-            cmd_args,
-            capture_output=True,
-            text=True,
-            timeout=30  # 30 second timeout
+        # Make sure SteamCMD is executable
+        if platform.system() != "Windows" and not os.access(steamcmd_path, os.X_OK):
+            os.chmod(steamcmd_path, 0o755)
+            logging.info(f"Made SteamCMD executable at {steamcmd_path}")
+        
+        # First, test if SteamCMD runs at all
+        test_cmd = [steamcmd_path, "+login", "anonymous", "+quit"]
+        logging.info(f"Testing SteamCMD with command: {' '.join(test_cmd)}")
+        
+        test_result = subprocess.run(
+            test_cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=30
         )
         
-        logging.info(f"SteamCMD test completed with return code: {result.returncode}")
+        logging.info(f"SteamCMD test result: Exit code {test_result.returncode}")
+        logging.info(f"SteamCMD test stdout: {test_result.stdout[:500]}")  # First 500 chars
         
-        if result.returncode == 0:
-            logging.info("SteamCMD test was successful")
-            return "SteamCMD test successful"
+        if test_result.returncode != 0:
+            with open(status_file, 'a') as f:
+                f.write(f"\nSteamCMD test failed with code {test_result.returncode}")
+            return f"Error: SteamCMD test failed with code {test_result.returncode}"
+        
+        # Now run the actual download - this runs synchronously
+        logging.info("Starting download process...")
+        with open(status_file, 'a') as f:
+            f.write("\nStarting SteamCMD download process...")
+        
+        # Run process with 10-minute timeout
+        result = subprocess.run(
+            cmd_args, 
+            capture_output=True, 
+            text=True, 
+            timeout=600  # 10 minutes
+        )
+        
+        logging.info(f"Download process completed with exit code: {result.returncode}")
+        
+        # Write results to status file
+        with open(status_file, 'a') as f:
+            f.write(f"\nDownload completed with exit code: {result.returncode}")
+            f.write(f"\nTime: {datetime.now()}")
+            f.write("\n\nOutput:\n")
+            f.write(result.stdout)
+        
+        # Check if download was successful
+        if result.returncode == 0 and "Success! App" in result.stdout:
+            return f"Successfully downloaded game (AppID: {appid})"
         else:
-            logging.error(f"SteamCMD test failed with output: {result.stdout}\n{result.stderr}")
-            return f"SteamCMD test failed with code {result.returncode}"
+            return f"Download completed with issues. Exit code: {result.returncode}. Check logs for details."
     
     except subprocess.TimeoutExpired:
-        logging.error("SteamCMD test timed out after 30 seconds")
-        return "Error: SteamCMD test timed out"
+        logging.error("Download process timed out after 10 minutes")
+        with open(status_file, 'a') as f:
+            f.write("\nERROR: Download process timed out after 10 minutes")
+        return "Error: Download timed out after 10 minutes"
     
     except Exception as e:
-        logging.error(f"Error running SteamCMD test: {str(e)}", exc_info=True)
+        logging.error(f"Error running download: {str(e)}", exc_info=True)
+        with open(status_file, 'a') as f:
+            f.write(f"\nERROR: {str(e)}")
         return f"Error: {str(e)}"
+
+def diagnose_environment():
+    """Diagnose potential issues in the environment."""
+    results = []
+    
+    # Check platform
+    results.append(f"Platform: {platform.system()}")
+    results.append(f"Python version: {sys.version}")
+    
+    # Check directories
+    steam_dir = os.path.join(STEAM_DOWNLOAD_PATH, "steamapps")
+    steamcmd_dir = os.path.dirname(get_steamcmd_path())
+    
+    results.append(f"Download path: {STEAM_DOWNLOAD_PATH} (Exists: {os.path.exists(STEAM_DOWNLOAD_PATH)})")
+    results.append(f"Steam apps dir: {steam_dir} (Exists: {os.path.exists(steam_dir)})")
+    results.append(f"SteamCMD dir: {steamcmd_dir} (Exists: {os.path.exists(steamcmd_dir)})")
+    
+    # Check SteamCMD
+    steamcmd_path = get_steamcmd_path()
+    results.append(f"SteamCMD path: {steamcmd_path} (Exists: {os.path.exists(steamcmd_path)})")
+    
+    if os.path.exists(steamcmd_path):
+        if platform.system() != "Windows":
+            is_exec = os.access(steamcmd_path, os.X_OK)
+            results.append(f"SteamCMD is executable: {is_exec}")
+    
+    # Check disk space
+    disk_info = psutil.disk_usage('/')
+    results.append(f"Disk space: {disk_info.free / (1024**3):.2f} GB free of {disk_info.total / (1024**3):.2f} GB")
+    
+    # Check network connectivity
+    try:
+        response = requests.get("https://store.steampowered.com", timeout=5)
+        results.append(f"Steam store connectivity: OK (Status: {response.status_code})")
+    except Exception as e:
+        results.append(f"Steam store connectivity: Failed ({str(e)})")
+    
+    # Check if other processes are running
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            if 'steam' in proc.info['name'].lower():
+                results.append(f"Found Steam process: {proc.info['name']} (PID: {proc.info['pid']})")
+    except:
+        results.append("Could not check for Steam processes")
+    
+    # Return formatted results
+    return "\n".join(results)
