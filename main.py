@@ -995,28 +995,34 @@ def create_download_games_tab():
                 # Combined game preview using HTML
                 game_preview_html = gr.HTML(label="Game Preview")
                 
-                # Login Section
+                # Login Section with improved feedback
                 gr.Markdown("### Steam Account (if required)")
                 anonymous_login = gr.Checkbox(
-                    label="Anonymous Login", 
+                    label="Anonymous Login (for free games only)", 
                     value=True,
-                    info="Use for free games and demos. For paid games, disable and provide credentials."
+                    info="⚠️ Paid games require a Steam account with ownership"
                 )
                 
-                # Use individual components with visible parameter instead of a Column
+                # Login status message for feedback
+                login_status = gr.Markdown("Using anonymous login (only free games can be downloaded)")
+                
+                # Individual login fields
                 username = gr.Textbox(
                     label="Steam Username", 
-                    visible=False
+                    visible=False,
+                    interactive=True
                 )
                 password = gr.Textbox(
                     label="Steam Password", 
                     type="password", 
-                    visible=False
+                    visible=False,
+                    interactive=True
                 )
                 guard_code = gr.Textbox(
                     label="Steam Guard Code (if enabled)",
                     placeholder="Leave empty if not needed",
-                    visible=False
+                    visible=False,
+                    interactive=True
                 )
                 
                 validate_download = gr.Checkbox(
@@ -1027,12 +1033,24 @@ def create_download_games_tab():
                 
                 download_btn = gr.Button("Download Game", variant="primary")
                 download_status = gr.Markdown("")
-                
+        
         # Define function handlers
         def handle_login_toggle(anonymous):
-            """Toggle visibility of login fields"""
-            # Return visibility for each field
-            return [not anonymous, not anonymous, not anonymous]
+            """Toggle login fields visibility with clear feedback"""
+            if anonymous:
+                return (
+                    "Using anonymous login (only free games can be downloaded)",  # Login status
+                    False,  # username visibility
+                    False,  # password visibility
+                    False   # guard code visibility
+                )
+            else:
+                return (
+                    "**Using Steam account login (required for paid games)**",  # Login status
+                    True,   # username visibility
+                    True,   # password visibility
+                    True    # guard code visibility
+                )
             
         def handle_game_check(input_text):
             """Check game details and return preview information as HTML."""
@@ -1064,6 +1082,10 @@ def create_download_games_tab():
                 description = app_info.get('short_description', 'No description available')
                 header_image = app_info.get('header_image', '')
                 
+                # Check if game is free
+                is_free = app_info.get('is_free', False)
+                price_info = app_info.get('price_overview', {})
+                
                 # Get size if possible
                 size_text = "Size information unavailable"
                 try:
@@ -1085,13 +1107,18 @@ def create_download_games_tab():
                     <div style="background: #3d3d3d; padding: 12px; border-radius: 4px; line-height: 1.4; border-left: 3px solid #6e6e6e;">
                         <strong style="color: #f0f0f0;">Description:</strong> {description}
                     </div>
-                    <div style="display: inline-block; background: #3d3d3d; color: white; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                        {size_text}
+                    <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: inline-block; background: #3d3d3d; color: white; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            {size_text}
+                        </div>
+                        <div style="display: inline-block; background: {is_free and '#3d8f3d' or '#8f3d3d'}; color: white; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
+                            {is_free and '✓ Free Game' or '💰 Paid Game'}
+                        </div>
                     </div>
                 </div>
                 """
@@ -1106,9 +1133,9 @@ def create_download_games_tab():
         
         def handle_download(game_input_text, username_val, password_val, guard_code_val, 
                            anonymous_val, validate_val, game_info_json):
-            """Direct download initiation without queue - simplified approach."""
+            """Handle the download button click with better error handling."""
             try:
-                print(f"Starting download for: {game_input_text}")
+                print(f"Download button clicked for: {game_input_text}")
                 
                 if not game_input_text:
                     return "❌ Please enter a game URL, ID, or title first."
@@ -1120,16 +1147,33 @@ def create_download_games_tab():
                 # Parse game input to get appid
                 result = parse_game_input(game_input_text)
                 if isinstance(result, tuple) and len(result) == 2:
-                    appid, _ = result
+                    appid, app_info = result
                 elif isinstance(result, str) and "Error" in result:
                     return f"❌ {result}"
                 else:
                     appid = result
+                    app_info = get_game_info(appid) if appid else {}
                     
                 if not appid:
                     return "❌ Could not determine AppID from input."
+                
+                # Check if game is free-to-play when using anonymous login
+                if anonymous_val:
+                    is_free = app_info.get('is_free', False)
+                    price_info = app_info.get('price_overview', {})
+                    has_price = price_info and price_info.get('initial', 0) > 0
                     
-                # Start download directly (bypassing queue)
+                    if not is_free or has_price:
+                        return "❌ This game requires purchase. Please disable Anonymous Login and provide Steam credentials."
+                
+                # Check login credentials when not anonymous
+                if not anonymous_val:
+                    if not username_val or not username_val.strip():
+                        return "❌ Please enter your Steam username."
+                    if not password_val or not password_val.strip():
+                        return "❌ Please enter your Steam password."
+                
+                # Start download directly
                 download_id = start_download(
                     username=username_val if not anonymous_val else "",
                     password=password_val if not anonymous_val else "",
@@ -1148,11 +1192,11 @@ def create_download_games_tab():
                 print(f"Error in download handler: {str(e)}")
                 return f"❌ Error: {str(e)}"
         
-        # Connect UI elements
+        # Connect UI elements with proper outputs
         anonymous_login.change(
             fn=handle_login_toggle,
             inputs=anonymous_login,
-            outputs=[username, password, guard_code]  # Connect to individual components
+            outputs=[login_status, username, password, guard_code]
         )
         
         check_button.click(
