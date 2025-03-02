@@ -1056,10 +1056,10 @@ def create_download_games_tab():
             return not anonymous
             
         def handle_game_check(input_text):
-            """Check game details and return preview information directly."""
+            """Check game details and return preview information."""
             try:
                 if not input_text:
-                    return {}, "Please enter a game URL, ID, or title", None, "", "", ""
+                    return {}, "Please enter a game URL, ID, or title"
                 
                 print(f"Checking game: {input_text}")  # Debug print
                 
@@ -1073,17 +1073,17 @@ def create_download_games_tab():
                     else:
                         # If it returns something else, handle that case
                         print(f"parse_game_input returned unexpected format: {result}")
-                        return {}, "❌ Error: Unexpected result format from game lookup", None, "", "", ""
+                        return {}, "❌ Error: Unexpected result format from game lookup"
                 else:
                     # If it's not a tuple, it might be the appid directly or an error
                     print(f"parse_game_input returned: {result}")
                     if isinstance(result, str) and "Error" in result:
-                        return {}, f"❌ {result}", None, "", "", ""
+                        return {}, f"❌ {result}"
                     appid = result
                     app_info = get_game_info(appid) if appid else {}
                 
                 if not appid or not app_info:
-                    return {}, "❌ Game not found. Please check the input and try again.", None, "", "", ""
+                    return {}, "❌ Game not found. Please check the input and try again."
                 
                 # Get more details
                 game_data = app_info.get('data', {})
@@ -1102,7 +1102,7 @@ def create_download_games_tab():
                 except Exception as size_error:
                     print(f"Error getting game size: {str(size_error)}")
                 
-                # Store UI data in app_info for later use
+                # Update the game_info object
                 app_info['ui_data'] = {
                     'header_image': header_image,
                     'name': name,
@@ -1110,21 +1110,13 @@ def create_download_games_tab():
                     'size_text': size_text
                 }
                 
-                # Return all values directly: game_info, status message, and preview fields
-                return (
-                    app_info, 
-                    f"✅ Game found: {name} (AppID: {appid})",
-                    header_image,
-                    name,
-                    description,
-                    size_text
-                )
-            
+                return app_info, f"✅ Game found: {name} (AppID: {appid})"
+                
             except Exception as e:
                 import traceback
                 traceback.print_exc()  # Print full traceback for debugging
                 print(f"Error checking game: {str(e)}")
-                return {}, f"❌ Error: {str(e)}", None, "", "", ""
+                return {}, f"❌ Error: {str(e)}"
         
         def handle_download(game_input_text, username_val, password_val, guard_code_val, 
                            anonymous_val, validate_val, game_info_json):
@@ -1168,8 +1160,28 @@ def create_download_games_tab():
         # Update the button click connection
         check_button.click(
             fn=handle_game_check,
-            inputs=[game_input],
-            outputs=[game_info, game_status, game_image, game_title, game_description, game_size]
+            inputs=game_input,
+            outputs=[game_info, game_status]
+        )
+        
+        # Add a separate event to update the UI elements when game_info changes
+        def update_game_preview(game_info_json):
+            if not game_info_json or 'ui_data' not in game_info_json:
+                return None, "", "", ""
+            
+            ui_data = game_info_json['ui_data']
+            return (
+                ui_data.get('header_image'),
+                ui_data.get('name', ''),
+                ui_data.get('description', ''),
+                ui_data.get('size_text', '')
+            )
+        
+        # Connect the game_info change event to update the UI
+        game_info.change(
+            fn=update_game_preview,
+            inputs=game_info,
+            outputs=[game_image, game_title, game_description, game_size]
         )
         
         download_btn.click(
@@ -1428,7 +1440,6 @@ def create_gradio_interface():
         gr.Markdown("Download Steam games directly using SteamCMD")
         
         with gr.Tabs():
-            # Instead of trying to fix the verification button, let's repurpose the Setup tab
             with gr.Tab("System Info"):
                 gr.Markdown("## System Information")
                 
