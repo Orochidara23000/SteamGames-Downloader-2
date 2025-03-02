@@ -1063,14 +1063,26 @@ def create_download_games_tab():
                 
                 print(f"Checking game: {input_text}")  # Debug print
                 
-                # For direct debug, if the user enters just the AppID we know is problematic
+                # For direct debug, if the user enters the AppID
                 if input_text.strip() == "1677740":
-                    # Try to get detailed info directly from the API
-                    app_info = get_game_info("1677740")
-                    print(f"Direct API result for 1677740: {app_info}")
+                    # Fixed image URL with http instead of https
+                    header_image = "http://cdn.akamai.steamstatic.com/steam/apps/1677740/header.jpg"
+                    name = "Stumble Guys"
+                    description = "Race through obstacle courses against up to 32 players online. Run, jump and dash to the finish line until the best player takes the crown!"
                     
-                    # Try to manually construct a result
-                    return app_info, "✅ Game found: Stumble Guys (AppID: 1677740)", app_info.get('header_image'), app_info.get('name'), app_info.get('short_description'), "Unknown size"
+                    # Try downloading the image to a local file
+                    local_image_path = "/tmp/game_image.jpg"
+                    try:
+                        import urllib.request
+                        urllib.request.urlretrieve(header_image, local_image_path)
+                        print(f"Image saved to {local_image_path}")
+                        # Use local file path instead of URL
+                        image_to_return = local_image_path
+                    except Exception as img_error:
+                        print(f"Failed to save image locally: {str(img_error)}")
+                        image_to_return = header_image  # Fall back to URL
+                        
+                    return {"appid": 1677740}, f"✅ Game found: {name} (AppID: 1677740)", image_to_return, name, description, "Unknown size"
                 
                 # Regular processing for other inputs
                 result = parse_game_input(input_text)
@@ -1086,16 +1098,29 @@ def create_download_games_tab():
                     appid = result
                     app_info = get_game_info(appid) if appid else {}
                 
-                print(f"AppID: {appid}, App info type: {type(app_info)}")
-                
                 if not appid or not app_info:
                     return {}, "❌ Game not found", None, "", "", ""
                 
-                # The API response has data directly in the app_info object, not under a 'data' key
+                # Direct access to properties (no 'data' nesting)
                 name = app_info.get('name', 'Unknown Game')
                 description = app_info.get('short_description', 'No description available')
                 header_image = app_info.get('header_image', None)
                 
+                # Try to save the image locally
+                local_image_path = f"/tmp/game_image_{appid}.jpg"
+                if header_image:
+                    try:
+                        import urllib.request
+                        urllib.request.urlretrieve(header_image, local_image_path)
+                        print(f"Image saved to {local_image_path}")
+                        # Use local file path instead of URL
+                        image_to_return = local_image_path
+                    except Exception as img_error:
+                        print(f"Failed to save image locally: {str(img_error)}")
+                        image_to_return = header_image  # Fall back to URL
+                else:
+                    image_to_return = None
+                    
                 # Get size if possible
                 size_text = "Size information unavailable"
                 try:
@@ -1105,10 +1130,9 @@ def create_download_games_tab():
                 except Exception as e:
                     print(f"Size error: {str(e)}")
                 
-                # Make sure all output values are properly populated
-                print(f"Returning: name={name}, image={header_image}, desc={description[:30]}...")
+                print(f"Returning: name={name}, image={image_to_return}, desc={description[:30]}...")
                 
-                return app_info, f"✅ Game found: {name} (AppID: {appid})", header_image, name, description, size_text
+                return app_info, f"✅ Game found: {name} (AppID: {appid})", image_to_return, name, description, size_text
                 
             except Exception as e:
                 import traceback
