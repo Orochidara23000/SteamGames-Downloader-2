@@ -1058,20 +1058,21 @@ def create_download_games_tab():
             """Check game details and return preview information."""
             try:
                 if not input_text:
-                    return {}, "Please enter a game URL, ID, or title", None, "", "", ""
+                    # Return just the two expected values: app_info and status message
+                    return {}, "Please enter a game URL, ID, or title"
                 
                 print(f"Checking game: {input_text}")  # Debug print
                 appid, app_info = parse_game_input(input_text)
                 
                 if not appid or not app_info:
-                    return {}, "❌ Game not found. Please check the input and try again.", None, "", "", ""
+                    return {}, "❌ Game not found. Please check the input and try again."
                 
                 # Get more details
                 game_data = app_info.get('data', {})
                 name = game_data.get('name', 'Unknown Game')
-                description = game_data.get('short_description', 'No description available')
                 
-                # Get image if available
+                # Process additional info for display (but don't return them directly)
+                description = game_data.get('short_description', 'No description available')
                 header_image = game_data.get('header_image', None)
                 
                 # Get size if possible
@@ -1083,17 +1084,20 @@ def create_download_games_tab():
                 except:
                     pass
                 
-                return (
-                    app_info, 
-                    f"✅ Game found: {name} (AppID: {appid})", 
-                    header_image,
-                    name,
-                    description,
-                    size_text
-                )
+                # Update the game_info object to include all the extra data
+                app_info['ui_data'] = {
+                    'header_image': header_image,
+                    'name': name,
+                    'description': description,
+                    'size_text': size_text
+                }
+                
+                # Return only the two expected values
+                return app_info, f"✅ Game found: {name} (AppID: {appid})"
+            
             except Exception as e:
                 print(f"Error checking game: {str(e)}")  # Debug print
-                return {}, f"❌ Error: {str(e)}", None, "", "", ""
+                return {}, f"❌ Error: {str(e)}"
         
         def handle_download(game_input_text, username_val, password_val, guard_code_val, 
                            anonymous_val, validate_val, game_info_json):
@@ -1134,10 +1138,31 @@ def create_download_games_tab():
             outputs=login_fields
         )
         
+        # Update the button click connection
         check_button.click(
             fn=handle_game_check,
             inputs=game_input,
-            outputs=[game_info, game_status, game_image, game_title, game_description, game_size]
+            outputs=[game_info, game_status]
+        )
+        
+        # Add a separate event to update the UI elements when game_info changes
+        def update_game_preview(game_info_json):
+            if not game_info_json or 'ui_data' not in game_info_json:
+                return None, "", "", ""
+            
+            ui_data = game_info_json['ui_data']
+            return (
+                ui_data.get('header_image'),
+                ui_data.get('name', ''),
+                ui_data.get('description', ''),
+                ui_data.get('size_text', '')
+            )
+        
+        # Connect the game_info change event to update the UI
+        game_info.change(
+            fn=update_game_preview,
+            inputs=game_info,
+            outputs=[game_image, game_title, game_description, game_size]
         )
         
         download_btn.click(
