@@ -999,205 +999,162 @@ def get_game_details(game_input):
 # ========================
 
 def create_download_games_tab():
-    """Create the 'Download Games' tab in the Gradio interface."""
+    """Create the Download Games tab with simplified, reliable functionality."""
     with gr.Tab("Download Games"):
-        gr.Markdown("### Game Information")
+        gr.Markdown("## Download Steam Games")
         
         with gr.Row():
-            with gr.Column(scale=3):
+            with gr.Column(scale=2):
+                # Game Input Section
+                gr.Markdown("### Game Details")
                 game_input = gr.Textbox(
-                    label="Game ID or Steam Store URL",
-                    placeholder="Enter AppID (e.g., 570) or Steam store URL",
-                    info="Tip: The AppID is the number in the URL of a Steam store page"
+                    label="Enter Steam Game URL, AppID, or Title",
+                    placeholder="e.g., https://store.steampowered.com/app/570/Dota_2/ or 570 or Dota 2",
+                    info="Accepts Steam store URLs, AppIDs, or game titles"
                 )
                 
-            with gr.Column(scale=1):
-                check_game_btn = gr.Button("Check Game", variant="secondary")
-        
-        # Define check_game_result BEFORE using it in any event handlers
-        check_game_result = gr.Textbox(
-            label="Game Status",
-            placeholder="Game status will appear here",
-            lines=6,  # More space for detailed status
-            interactive=False
-        )
-        
-        # Game details display
-        with gr.Row(visible=False) as game_details_row:
-            with gr.Column(scale=1):
-                game_image = gr.Image(label="Game Image", type="filepath", interactive=False)
-            
-            with gr.Column(scale=2):
-                game_title = gr.Textbox(label="Game Title", interactive=False)
-                game_description = gr.Textbox(label="Description", interactive=False)
-                game_metadata = gr.Dataframe(
-                    headers=["Property", "Value"],
-                    interactive=False
+                game_info = gr.JSON(label="Game Information", visible=False)
+                game_status = gr.Markdown("")
+                check_button = gr.Button("Check Game", variant="secondary")
+                
+                # Login Section
+                gr.Markdown("### Steam Account (if required)")
+                anonymous_login = gr.Checkbox(
+                    label="Anonymous Login", 
+                    value=True,
+                    info="Use for free games and demos. For paid games, disable and provide credentials."
                 )
-        
-        gr.Markdown("### Download Options")
-        
-        with gr.Row():
-            with gr.Column():
-                with gr.Group():
-                    gr.Markdown("#### Login Method")
-                    anonymous = gr.Checkbox(label="Anonymous Login (Free Games Only)", value=True)
-                    
-                    with gr.Group() as login_details:
-                        username = gr.Textbox(label="Steam Username")
-                        password = gr.Textbox(label="Steam Password", type="password")
-                        guard_code = gr.Textbox(
-                            label="Steam Guard Code (if applicable)", 
-                            placeholder="Leave empty if not using Steam Guard"
-                        )
+                
+                with gr.Column(visible=False) as login_fields:
+                    username = gr.Textbox(label="Steam Username")
+                    password = gr.Textbox(label="Steam Password", type="password")
+                    guard_code = gr.Textbox(
+                        label="Steam Guard Code (if enabled)",
+                        placeholder="Leave empty if not needed"
+                    )
+                
+                validate_download = gr.Checkbox(
+                    label="Validate Download", 
+                    value=True,
+                    info="Verify game files after download (recommended)"
+                )
+                
+                download_btn = gr.Button("Download Game", variant="primary")
+                download_status = gr.Markdown("")
+                
+            with gr.Column(scale=1):
+                # Game Preview
+                gr.Markdown("### Game Preview")
+                game_image = gr.Image(label="Game Image", type="filepath", interactive=False)
+                game_title = gr.Textbox(label="Title", interactive=False)
+                game_description = gr.Textbox(label="Description", interactive=False, lines=4)
+                game_size = gr.Textbox(label="Approximate Size", interactive=False)
+                
+        # Define function handlers
+        def handle_login_toggle(anonymous):
+            return not anonymous
             
-            with gr.Column():
-                with gr.Group():
-                    gr.Markdown("#### Download Settings")
-                    validate_download = gr.Checkbox(
-                        label="Validate Files After Download", 
-                        value=True,
-                        info="Ensures all files are correctly downloaded"
-                    )
-                    debug_mode = gr.Checkbox(
-                        label="Debug Mode", 
-                        value=False,
-                        info="Verbose logging for troubleshooting"
-                    )
-                    download_path = gr.Textbox(
-                        label="Download Path", 
-                        value=get_default_download_location(),
-                        info="Location where games will be installed"
-                    )
-        
-        with gr.Row():
-            download_btn = gr.Button("Download Game", variant="primary")
-            queue_btn = gr.Button("Add to Queue", variant="secondary")
-        
-        download_status = gr.Markdown("Enter a game ID or URL and click 'Check Game' to start")
-        
-        # Event handlers
-        
-        # Toggle login details visibility based on anonymous checkbox
-        def toggle_login_fields(anonymous):
-            return gr.update(visible=not anonymous)
-        
-        anonymous.change(
-            fn=toggle_login_fields,
-            inputs=[anonymous],
-            outputs=[login_details]
-        )
-        
-        # Define the check game status function to return only what's needed
-        def extract_appid_from_input(input_text):
-            """Extract the AppID from various input formats including URLs"""
+        def handle_game_check(input_text):
+            """Check game details and return preview information."""
             try:
-                # If it's a URL, extract the app ID from it
-                url_match = re.search(r'app/(\d+)', input_text)
-                if url_match:
-                    return url_match.group(1)
-            
-                # Extract any numeric sequence that looks like an app ID
-                numeric_match = re.search(r'(\d+)', input_text)
-                if numeric_match:
-                    return numeric_match.group(1)
-            
-                return input_text.strip()
-            except Exception as e:
-                logger.error(f"Error extracting App ID: {e}")
-                return input_text.strip()
-
-        def check_game_status(game_input):
-            logging.info(f"Checking game status for input: {game_input}")
-            
-            # Extract AppID from input
-            appid = parse_game_input(game_input)
-            if not appid:
-                return f"Error: Unable to extract AppID from input: {game_input}"
-            
-            logging.info(f"Successfully extracted AppID: {appid}")
-            
-            # Remove any existing configuration that disables API calls
-            enable_api_calls = True  # Force enable API calls
-            
-            if enable_api_calls:
+                if not input_text:
+                    return {}, "Please enter a game URL, ID, or title", None, "", "", ""
+                
+                print(f"Checking game: {input_text}")  # Debug print
+                appid, app_info = parse_game_input(input_text)
+                
+                if not appid or not app_info:
+                    return {}, "❌ Game not found. Please check the input and try again.", None, "", "", ""
+                
+                # Get more details
+                game_data = app_info.get('data', {})
+                name = game_data.get('name', 'Unknown Game')
+                description = game_data.get('short_description', 'No description available')
+                
+                # Get image if available
+                header_image = game_data.get('header_image', None)
+                
+                # Get size if possible
+                size_text = "Size information unavailable"
                 try:
-                    # Check if app exists via Steam API
-                    url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
-                    logging.info(f"Querying Steam API: {url}")
-                    
-                    response = requests.get(url, timeout=5)
-                    
-                    if not response.ok:
-                        logging.error(f"Steam API request failed with status: {response.status_code}")
-                        return f"Error: Steam API request failed with status: {response.status_code}"
-                    
-                    data = response.json()
-                    
-                    if not data or not data.get(appid):
-                        logging.error(f"Invalid response from Steam API for App ID {appid}")
-                        return f"Error: Invalid response from Steam API for AppID: {appid}"
-                    
-                    if not data.get(appid, {}).get('success', False):
-                        logging.warning(f"Game not found for App ID: {appid}")
-                        return f"Error: Game not found on Steam (AppID: {appid})"
-                    
-                    game_data = data[appid]['data']
-                    game_name = game_data.get('name', 'Unknown Game')
-                    is_free = game_data.get('is_free', False)
-                    
-                    # Check if game is installed
-                    installed = False
-                    try:
-                        installed = is_game_installed(appid)
-                    except Exception as e:
-                        logging.warning(f"Error checking if game is installed: {str(e)}")
-                    
-                    status_msg = f"Game: {game_name}\nAppID: {appid}\nFree to Play: {'Yes' if is_free else 'No'}\nInstalled: {'Yes' if installed else 'No'}\n"
-                    status_msg += f"Description: {game_data.get('short_description', 'No description available')}"
-                    
-                    logging.info(f"Game status check successful for {game_name} (AppID: {appid})")
-                    return status_msg
-                    
-                except requests.exceptions.Timeout:
-                    logging.error(f"Timeout while validating App ID {appid}")
-                    return f"Error: Timeout while connecting to Steam API for AppID: {appid}"
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Request error while validating App ID {appid}: {str(e)}")
-                    return f"Error: Request error for AppID {appid}: {str(e)}"
-                except json.JSONDecodeError:
-                    logging.error(f"Invalid JSON response from Steam API for App ID {appid}")
-                    return f"Error: Invalid response format from Steam API for AppID: {appid}"
-                except Exception as e:
-                    logging.error(f"Error checking game status for AppID {appid}: {str(e)}", exc_info=True)
-                    return f"Error checking game status: {str(e)}"
-            else:
-                # This is the message you're seeing, so we need to modify this branch
-                game_name = f"Game with AppID: {appid}"
-                status_msg = f"### {game_name}\nAppID: {appid}\n"
-                status_msg += "Info: Unable to retrieve game details from Steam API.\n"
-                status_msg += "Note: Game info retrieval has been disabled to avoid hanging issues.\n\n"
-                status_msg += "To download this game, use the Download button below."
-                return status_msg
+                    size = get_game_size(appid)
+                    if size:
+                        size_text = format_size(size)
+                except:
+                    pass
+                
+                return (
+                    app_info, 
+                    f"✅ Game found: {name} (AppID: {appid})", 
+                    header_image,
+                    name,
+                    description,
+                    size_text
+                )
+            except Exception as e:
+                print(f"Error checking game: {str(e)}")  # Debug print
+                return {}, f"❌ Error: {str(e)}", None, "", "", ""
         
-        # IMPORTANT: Find ALL instances where check_game_btn.click is defined
-        # and make sure they're consistent
+        def handle_download(game_input_text, username_val, password_val, guard_code_val, 
+                           anonymous_val, validate_val, game_info_json):
+            """Handle the download button click with clear feedback."""
+            try:
+                print(f"Download button clicked for: {game_input_text}")  # Debug print
+                
+                if not game_input_text:
+                    return "❌ Please enter a game URL, ID, or title first."
+                
+                # Check if we have valid game info
+                if not game_info_json:
+                    return "❌ Please click 'Check Game' first to verify the game information."
+                    
+                # Use queue_download which is defined earlier in the file
+                result = queue_download(
+                    username=username_val if not anonymous_val else "",
+                    password=password_val if not anonymous_val else "",
+                    guard_code=guard_code_val if not anonymous_val else "",
+                    anonymous=anonymous_val,
+                    game_input=game_input_text,
+                    validate=validate_val
+                )
+                
+                if isinstance(result, str) and "Error" in result:
+                    return f"❌ {result}"
+                else:
+                    return f"✅ Game added to download queue with ID: {result}"
+                    
+            except Exception as e:
+                print(f"Error in download handler: {str(e)}")  # Debug print
+                return f"❌ Error: {str(e)}"
         
-        # This is what it should be - connecting to only one output
-        check_game_btn.click(
-            fn=check_game_status,
-            inputs=[game_input],
-            outputs=[check_game_result]
+        # Connect UI elements
+        anonymous_login.change(
+            fn=handle_login_toggle,
+            inputs=anonymous_login,
+            outputs=login_fields
         )
         
-        # Connect this to your download button
+        check_button.click(
+            fn=handle_game_check,
+            inputs=game_input,
+            outputs=[game_info, game_status, game_image, game_title, game_description, game_size]
+        )
+        
         download_btn.click(
-            fn=lambda username, password, guard_code, anonymous, game_input, validate_download: queue_download(username, password, guard_code, anonymous, game_input, validate_download),
-            inputs=[username, password, guard_code, anonymous, game_input, validate_download],
-            outputs=[download_status]
+            fn=handle_download,
+            inputs=[
+                game_input,
+                username,
+                password,
+                guard_code,
+                anonymous_login,
+                validate_download,
+                game_info
+            ],
+            outputs=download_status
         )
         
-        return game_input, check_game_btn, download_btn, check_game_result
+    return None
 
 def create_downloads_tab():
     """Create the 'Downloads' tab in the Gradio interface with real-time logs instead of tabular data."""
