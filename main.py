@@ -1284,6 +1284,12 @@ def create_downloads_tab():
                     text_parts.append(f"Progress: {progress_bar} {progress_str}")
                     text_parts.append(f"Speed: {speed} | ETA: {eta}")
                     
+                    # Add any download logs for this specific download
+                    if 'logs' in download and download['logs']:
+                        text_parts.append("Recent output:")
+                        for log_line in download['logs'][-5:]:  # Show last 5 log lines
+                            text_parts.append(f"  > {log_line}")
+                    
                     # Add cancel instructions
                     text_parts.append(f"To cancel, run this command: cancel_download('{download_id}')")
                     text_parts.append("---")
@@ -1326,24 +1332,14 @@ def create_downloads_tab():
                     text_parts.append(f"{i}. {game_name}")
                     text_parts.append(f"   Size: {size} | Completed: {completed}")
                     text_parts.append(f"   Duration: {duration} | Status: {status}")
+                    
+                    # Add any final logs for this download if available
+                    if 'logs' in item and item['logs']:
+                        text_parts.append("   Final output:")
+                        for log_line in item['logs'][-3:]:  # Show last 3 log lines
+                            text_parts.append(f"     > {log_line}")
+                    
                     text_parts.append("   ---")
-            
-            # Add logs section
-            text_parts.append("\n### Recent Logs")
-            
-            try:
-                # Get the most recent log entries (last 10)
-                log_lines = []
-                with open("app.log", "r") as log_file:
-                    log_lines = log_file.readlines()[-10:]
-                
-                if log_lines:
-                    for line in log_lines:
-                        text_parts.append(line.strip())
-                else:
-                    text_parts.append("No logs available")
-            except Exception as e:
-                text_parts.append(f"Could not read logs: {str(e)}")
             
             # Join all parts with newlines
             return "\n".join(text_parts)
@@ -1393,7 +1389,6 @@ def create_downloads_tab():
             }, 1000);
         });
         </script>
-
         """)
         
         # Add a small info text
