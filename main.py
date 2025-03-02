@@ -995,36 +995,41 @@ def create_download_games_tab():
                 # Combined game preview using HTML
                 game_preview_html = gr.HTML(label="Game Preview")
                 
-                # Login Section with improved feedback
-                gr.Markdown("### Steam Account (if required)")
-                anonymous_login = gr.Checkbox(
-                    label="Anonymous Login (for free games only)", 
-                    value=True,
-                    info="⚠️ Paid games require a Steam account with ownership"
+                # Login Section with toggle
+                gr.Markdown("### Steam Account Settings")
+                
+                # Debug output
+                debug_output = gr.Markdown("") 
+                
+                # Login choice
+                login_choice = gr.Radio(
+                    choices=["Anonymous Login (Free Games Only)", "Steam Account Login (Required for Paid Games)"],
+                    value="Anonymous Login (Free Games Only)",
+                    label="Login Type"
                 )
                 
-                # Login status message for feedback
-                login_status = gr.Markdown("Using anonymous login (only free games can be downloaded)")
+                # ANONYMOUS LOGIN GROUP
+                with gr.Group(elem_id="anonymous-group") as anonymous_group:
+                    gr.Markdown("Using anonymous login - only free games can be downloaded.")
                 
-                # Individual login fields
-                username = gr.Textbox(
-                    label="Steam Username", 
-                    visible=False,
-                    interactive=True
-                )
-                password = gr.Textbox(
-                    label="Steam Password", 
-                    type="password", 
-                    visible=False,
-                    interactive=True
-                )
-                guard_code = gr.Textbox(
-                    label="Steam Guard Code (if enabled)",
-                    placeholder="Leave empty if not needed",
-                    visible=False,
-                    interactive=True
-                )
+                # ACCOUNT LOGIN GROUP
+                with gr.Group(elem_id="account-group", visible=False) as account_group:
+                    gr.Markdown("**Enter your Steam credentials below:**")
+                    username = gr.Textbox(
+                        label="Steam Username",
+                        placeholder="Your Steam username"
+                    )
+                    password = gr.Textbox(
+                        label="Steam Password",
+                        type="password",
+                        placeholder="Your Steam password" 
+                    )
+                    guard_code = gr.Textbox(
+                        label="Steam Guard Code (if enabled)",
+                        placeholder="Leave empty if not needed"
+                    )
                 
+                # Common download options
                 validate_download = gr.Checkbox(
                     label="Validate Download", 
                     value=True,
@@ -1035,22 +1040,20 @@ def create_download_games_tab():
                 download_status = gr.Markdown("")
         
         # Define function handlers
-        def handle_login_toggle(anonymous):
-            """Toggle login fields visibility with clear feedback"""
-            if anonymous:
-                return (
-                    "Using anonymous login (only free games can be downloaded)",  # Login status
-                    False,  # username visibility
-                    False,  # password visibility
-                    False   # guard code visibility
-                )
-            else:
-                return (
-                    "**Using Steam account login (required for paid games)**",  # Login status
-                    True,   # username visibility
-                    True,   # password visibility
-                    True    # guard code visibility
-                )
+        def toggle_login_panels(choice):
+            """Switch between anonymous and account login"""
+            print(f"Login choice changed to: {choice}")
+            is_anonymous = "Anonymous" in choice
+            
+            # Debug information to display in UI
+            debug_msg = f"DEBUG: Login choice = '{choice}', Anonymous = {is_anonymous}"
+            print(debug_msg)
+            
+            return {
+                anonymous_group: is_anonymous,
+                account_group: not is_anonymous,
+                debug_output: debug_msg
+            }
             
         def handle_game_check(input_text):
             """Check game details and return preview information as HTML."""
@@ -1131,11 +1134,15 @@ def create_download_games_tab():
                 print(f"Critical error in handle_game_check: {str(e)}")
                 return {}, f"❌ Error: {str(e)}", f"<div>Error: {str(e)}</div>"
         
-        def handle_download(game_input_text, username_val, password_val, guard_code_val, 
-                           anonymous_val, validate_val, game_info_json):
-            """Handle the download button click with better error handling."""
+        def handle_download(game_input_text, login_type, username_val, password_val, guard_code_val, validate_val, game_info_json):
+            """Handle the download button click."""
             try:
                 print(f"Download button clicked for: {game_input_text}")
+                print(f"Login type: {login_type}")
+                
+                # Determine if anonymous mode is being used
+                anonymous_val = "Anonymous" in login_type
+                print(f"Using anonymous login: {anonymous_val}")
                 
                 if not game_input_text:
                     return "❌ Please enter a game URL, ID, or title first."
@@ -1164,7 +1171,7 @@ def create_download_games_tab():
                     has_price = price_info and price_info.get('initial', 0) > 0
                     
                     if not is_free or has_price:
-                        return "❌ This game requires purchase. Please disable Anonymous Login and provide Steam credentials."
+                        return "❌ This game requires purchase. Please select Steam Account Login instead."
                 
                 # Check login credentials when not anonymous
                 if not anonymous_val:
@@ -1173,7 +1180,7 @@ def create_download_games_tab():
                     if not password_val or not password_val.strip():
                         return "❌ Please enter your Steam password."
                 
-                # Start download directly
+                # Start download
                 download_id = start_download(
                     username=username_val if not anonymous_val else "",
                     password=password_val if not anonymous_val else "",
@@ -1193,10 +1200,10 @@ def create_download_games_tab():
                 return f"❌ Error: {str(e)}"
         
         # Connect UI elements with proper outputs
-        anonymous_login.change(
-            fn=handle_login_toggle,
-            inputs=anonymous_login,
-            outputs=[login_status, username, password, guard_code]
+        login_choice.change(
+            fn=toggle_login_panels,
+            inputs=login_choice,
+            outputs=[anonymous_group, account_group, debug_output]
         )
         
         check_button.click(
@@ -1209,10 +1216,10 @@ def create_download_games_tab():
             fn=handle_download,
             inputs=[
                 game_input,
+                login_choice,
                 username,
                 password,
                 guard_code,
-                anonymous_login,
                 validate_download,
                 game_info
             ],
