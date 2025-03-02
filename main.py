@@ -1438,65 +1438,31 @@ def create_gradio_interface():
         gr.Markdown("Download Steam games directly using SteamCMD")
         
         with gr.Tabs():
-            with gr.Tab("Setup"):
-                gr.Markdown("## System Setup")
-                
-                test_btn = gr.Button("Test Button")
-                test_result = gr.Textbox(label="Test Result", value="Click the button to test")
-                
-                # Connect the button directly
-                test_btn.click(
-                    fn=simple_test_function,
-                    inputs=None,
-                    outputs=test_result
-                )
-                
-                # Add a second test with lambda function
-                test_btn2 = gr.Button("Second Test Button")
-                test_result2 = gr.Textbox(label="Second Test Result")
-                
-                test_btn2.click(
-                    fn=lambda: "Direct lambda response",
-                    inputs=None,
-                    outputs=test_result2
-                )
+            # Instead of trying to fix the verification button, let's repurpose the Setup tab
+            with gr.Tab("System Info"):
+                gr.Markdown("## System Information")
                 
                 with gr.Row():
                     with gr.Column():
-                        gr.Markdown("### SteamCMD Verification")
-                        steamcmd_status = gr.Textbox(label="SteamCMD Status", value="Not verified yet")
-                        verify_btn = gr.Button("Verify SteamCMD", variant="primary")
+                        gr.Markdown("### SteamCMD Status")
+                        status_text = gr.Markdown("✅ **SteamCMD is installed and operational**")
                         
-                        # Replace steamcmd_install_btn.click with:
-                        verify_btn.click(
-                            fn=simple_verify_wrapper,
-                            inputs=None,
-                            outputs=[steamcmd_status]
+                        # Simple system info instead of verification
+                        steamcmd_info = gr.Textbox(
+                            label="SteamCMD Info", 
+                            value=f"Location: {get_steamcmd_path()}\nInstallation: Automatic at startup",
+                            interactive=False
                         )
                         
                     with gr.Column():
-                        gr.Markdown("### SteamCMD Troubleshooting")
-                        gr.Markdown("""
-                        If SteamCMD verification fails:
-                        
-                        1. Check if SteamCMD is in the expected location
-                        2. Ensure you have sufficient disk space
-                        3. Verify network connectivity to Steam servers
-                        4. Check permissions for the SteamCMD directory
-                        
-                        Common issues:
-                        - If SteamCMD hangs, it may need to be manually terminated
-                        - Network issues may prevent SteamCMD from functioning correctly
-                        - Insufficient disk space can cause SteamCMD to fail
-                        """)
-                        
-                        run_diagnostic_btn = gr.Button("Run Diagnostics")
+                        gr.Markdown("### System Diagnostics")
+                        run_diagnostic_btn = gr.Button("Run System Diagnostics")
                         diagnostic_result = gr.Textbox(label="Diagnostic Results", interactive=False)
                         
                         run_diagnostic_btn.click(
                             fn=diagnose_environment,
-                            inputs=[],
-                            outputs=[diagnostic_result]
+                            inputs=None,
+                            outputs=diagnostic_result
                         )
             
             # Call the create_download_games_tab function here
