@@ -1210,7 +1210,7 @@ def create_download_games_tab():
     return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
-    """Create the Downloads tab with direct download management (no queue)."""
+    """Create the Downloads tab with reliable real-time progress display."""
     with gr.Tab("Downloads"):
         gr.Markdown("## Active Downloads and History")
         
@@ -1239,28 +1239,51 @@ def create_downloads_tab():
             
             return "\n".join(stats)
 
-        # Function to get active download data
+        # Function to get active download data - IMPROVED VERSION
         def get_active_downloads_data():
             status_data = get_download_status()
             active = status_data.get('active', [])
             
             rows = []
             for download in active:
+                # Skip download entries that don't have the required fields
+                if not all(k in download for k in ['id', 'name', 'process']):
+                    continue
+                    
                 download_id = download.get('id', 'Unknown')
                 game_name = download.get('name', 'Unknown Game')
-                progress = f"{download.get('progress', 0):.1f}%"
+                
+                # Format progress properly
+                progress = download.get('progress', 0)
+                if isinstance(progress, (int, float)):
+                    progress_str = f"{progress:.1f}%"
+                else:
+                    progress_str = str(progress)
+                    
+                # Format other fields
                 speed = download.get('speed', 'N/A')
                 eta = download.get('eta', 'Unknown')
-                status = download.get('status', 'Unknown')
+                status = download.get('status', 'Starting')
                 
-                # Create cancel button text
-                action = f"Cancel {download_id}"
+                # Check if process is still running
+                process = download.get('process')
+                if process:
+                    if process.poll() is not None:
+                        if process.returncode == 0:
+                            status = 'Completed'
+                        else:
+                            status = f'Error (code: {process.returncode})'
                 
-                rows.append([download_id, game_name, progress, speed, eta, status, action])
+                # Simple text for cancel button
+                action = "Cancel"
+                
+                rows.append([download_id, game_name, progress_str, speed, eta, status, action])
             
-            return rows if rows else [["No active downloads", "", "", "", "", "", ""]]
+            if not rows:
+                return [["No active downloads", "", "", "", "", "", ""]]
+            return rows
 
-        # Function to get download history
+        # Function to get download history - IMPROVED VERSION
         def get_history_data():
             status_data = get_download_status()
             history = status_data.get('history', [])
@@ -1268,14 +1291,21 @@ def create_downloads_tab():
             rows = []
             for item in history:
                 game_name = item.get('name', 'Unknown Game')
+                
+                # Format size
                 size = item.get('size', 'Unknown')
-                if isinstance(size, (int, float)):
+                if isinstance(size, (int, float)) and size > 0:
                     size = format_size(size)
                     
+                # Format completion time
                 completed = item.get('completed', 'Unknown')
                 if isinstance(completed, (int, float)):
-                    completed = datetime.fromtimestamp(completed).strftime("%Y-%m-%d %H:%M")
+                    try:
+                        completed = datetime.fromtimestamp(completed).strftime("%Y-%m-%d %H:%M")
+                    except:
+                        completed = str(completed)
                     
+                # Format duration
                 duration = item.get('duration', 'Unknown')
                 if isinstance(duration, (int, float)):
                     minutes, seconds = divmod(duration, 60)
@@ -1286,42 +1316,58 @@ def create_downloads_tab():
                 
                 rows.append([game_name, size, completed, duration, status])
             
-            return rows if rows else [["No download history", "", "", "", ""]]
+            if not rows:
+                return [["No download history", "", "", "", ""]]
+            return rows
 
-        # Get initial data
-        initial_stats = get_system_stats()
-        initial_active = get_active_downloads_data()
-        initial_history = get_history_data()
-        
+        # Function to update all data
+        def update_all_data():
+            """Update all UI components with freshest data"""
+            try:
+                system_info = get_system_stats()
+                active_data = get_active_downloads_data()
+                history_data = get_history_data()
+                
+                # Debug print
+                print(f"Active downloads: {len(active_data)}")
+                if len(active_data) > 0 and active_data[0][0] != "No active downloads":
+                    print(f"First download: {active_data[0]}")
+                
+                return system_info, active_data, history_data
+            except Exception as e:
+                print(f"Error updating data: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return "Error updating data", [["Error", "", "", "", "", "", ""]], [["Error", "", "", "", ""]]
+
         with gr.Row():
             with gr.Column(scale=2):
-                # System stats with initial value
-                system_stats = gr.Textbox(
+                # System stats
+                system_info = gr.Textbox(
                     label="System Information",
-                    value=initial_stats,  # Set initial value directly
-                    lines=5,
-                    max_lines=5,
+                    value=get_system_stats(),
+                    lines=6,
+                    max_lines=6,
                     interactive=False
                 )
                 
                 # Active downloads section
                 gr.Markdown("### Currently Downloading")
                 active_downloads = gr.DataFrame(
-                    value=initial_active,  # Set initial value directly
+                    value=get_active_downloads_data(),
                     headers=[
                         "ID", "Game", "Progress", "Speed", "ETA", "Status", "Actions"
                     ],
                     datatype=["str", "str", "str", "str", "str", "str", "str"],
                     row_count=5,
                     col_count=(7, "fixed"),
-                    interactive=False,
-                    elem_id="active-downloads-table"
+                    interactive=False
                 )
                 
                 # Download history
                 gr.Markdown("### Download History")
                 download_history = gr.DataFrame(
-                    value=initial_history,  # Set initial value directly
+                    value=get_history_data(),
                     headers=[
                         "Game", "Size", "Completed", "Duration", "Status"
                     ],
@@ -1331,7 +1377,8 @@ def create_downloads_tab():
                     interactive=False
                 )
                 
-                refresh_button = gr.Button("Refresh Data", variant="secondary", elem_id="refresh-button")
+                # Manual refresh button
+                refresh_button = gr.Button("Refresh Data", variant="secondary")
                 
             with gr.Column(scale=1):
                 # Logs section
@@ -1345,7 +1392,7 @@ def create_downloads_tab():
                     autoscroll=True
                 )
                 
-                # Add log handler that doesn't use update method
+                # Add log handler
                 class UILogHandler(logging.Handler):
                     def __init__(self, log_box):
                         super().__init__()
@@ -1360,8 +1407,12 @@ def create_downloads_tab():
                             # Keep only the most recent logs
                             if len(self.logs) > self.max_logs:
                                 self.logs = self.logs[-self.max_logs:]
-                            # Use gradio's built-in queue mechanism instead of direct update
-                            gr.Info(log_entry)  # Show latest log as notification
+                            
+                            # Update the log box if possible
+                            try:
+                                self.log_box.value = "\n".join(self.logs)
+                            except:
+                                pass  # Silently fail if update not possible
                         except Exception as e:
                             print(f"Error in log handler: {str(e)}")
                 
@@ -1369,121 +1420,127 @@ def create_downloads_tab():
                 log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
                 logging.getLogger().addHandler(log_handler)
                 
+                # Add explicit log update button
+                update_logs_button = gr.Button("Update Logs")
+                update_logs_button.click(
+                    fn=lambda: "\n".join(log_handler.logs) if hasattr(log_handler, 'logs') else "No logs available",
+                    inputs=[],
+                    outputs=[log_output]
+                )
+                
                 # Clear logs button
                 clear_logs = gr.Button("Clear Logs")
-
-        # Function to update all data
-        def update_data():
-            return (
-                get_system_stats(),
-                get_active_downloads_data(),
-                get_history_data()
-            )
+                clear_logs.click(
+                    fn=lambda: "",
+                    inputs=[],
+                    outputs=[log_output]
+                )
 
         # Function to cancel download
-        def cancel_download_and_refresh(download_id):
-            result = cancel_download(download_id)
-            # Short pause to let system update
-            time.sleep(0.5)
-            return update_data()
-            
-        # Connect refresh button
+        def cancel_download(download_id):
+            """Cancel a download and refresh the displays"""
+            try:
+                cancel_result = cancel_download(download_id)
+                print(f"Cancelled download {download_id}: {cancel_result}")
+                time.sleep(0.5)  # Brief pause to let system update
+                return update_all_data()
+            except Exception as e:
+                print(f"Error cancelling download: {str(e)}")
+                return update_all_data()
+        
+        # Connect refresh button to update function
         refresh_button.click(
-            fn=update_data,
+            fn=update_all_data,
             inputs=[],
-            outputs=[system_stats, active_downloads, download_history]
+            outputs=[system_info, active_downloads, download_history]
         )
         
-        # Connect clear logs button
-        clear_logs.click(
-            fn=lambda: "",
-            inputs=[],
-            outputs=[log_output]
-        )
-        
-        # Add JavaScript for auto-refresh and cancel
+        # Add manual refresh every 3 seconds via JavaScript
         gr.HTML("""
         <script>
-        // Function to handle DataFrame clicks (for cancel actions)
-        function setupCancelButtons() {
-            // Use setTimeout to wait for the DOM to fully load
-            setTimeout(() => {
-                const table = document.getElementById('active-downloads-table');
-                if (!table) {
-                    console.log('Active downloads table not found, will retry');
-                    setupCancelButtons();  // Retry
-                    return;
+        // Set up auto-refresh
+        (function() {
+            const REFRESH_INTERVAL = 3000; // 3 seconds
+            let timerId = null;
+            
+            function autoRefresh() {
+                // Find the refresh button and click it
+                const refreshBtn = document.querySelector('button[aria-label="Refresh Data"]');
+                if (refreshBtn) {
+                    console.log("Auto-refreshing download data...");
+                    refreshBtn.click();
+                }
+            }
+            
+            // Start auto-refresh when this tab is visible
+            function setupRefresh() {
+                if (timerId) {
+                    clearInterval(timerId);
                 }
                 
-                table.addEventListener('click', (e) => {
+                timerId = setInterval(autoRefresh, REFRESH_INTERVAL);
+                console.log("Auto-refresh started for downloads tab");
+                
+                // Initial refresh
+                setTimeout(autoRefresh, 500);
+            }
+            
+            // Clean up when the page unloads
+            window.addEventListener('unload', () => {
+                if (timerId) {
+                    clearInterval(timerId);
+                }
+            });
+            
+            // Start on page load
+            if (document.readyState === 'complete') {
+                setupRefresh();
+            } else {
+                window.addEventListener('load', setupRefresh);
+            }
+            
+            // Also set up click handler for cancel actions
+            function setupCancelHandler() {
+                document.addEventListener('click', (e) => {
+                    // Check if the click was in the active downloads table
+                    const downloadsTable = document.querySelector('table');
+                    if (!downloadsTable) return;
+                    
+                    // Check if clicked in last column (Actions)
                     const cell = e.target.closest('td');
                     if (!cell) return;
                     
-                    const rowIndex = cell.parentNode.rowIndex;
-                    if (rowIndex <= 0) return;  // Skip header row
+                    const row = cell.parentElement;
+                    if (!row) return;
                     
-                    const cellIndex = cell.cellIndex;
-                    
-                    // Check if clicking action column (index 6)
-                    if (cellIndex === 6) {
-                        const dataTable = document.getElementById('active-downloads-table');
-                        const downloadId = dataTable.rows[rowIndex].cells[0].innerText;
-                        
+                    const cellIndex = Array.from(row.cells).indexOf(cell);
+                    if (cellIndex === 6) { // 7th column (0-indexed)
+                        // Get download ID from first cell
+                        const downloadId = row.cells[0].innerText;
                         if (downloadId && downloadId !== "No active downloads") {
-                            console.log('Cancelling download:', downloadId);
+                            console.log("Cancelling download:", downloadId);
                             
-                            fetch(`/api/cancel_download/${downloadId}`, {
-                                method: 'POST'
-                            })
-                            .then(response => response.json())
-                            .then(data => {
-                                console.log('Download cancelled:', data);
-                                // Trigger refresh
-                                document.getElementById('refresh-button').click();
-                            })
-                            .catch(error => {
-                                console.error('Error cancelling download:', error);
-                            });
+                            // Call the API to cancel
+                            fetch(`/api/cancel_download/${downloadId}`, { method: 'POST' })
+                                .then(res => res.json())
+                                .then(() => {
+                                    // Click refresh button to update UI
+                                    const refreshBtn = document.querySelector('button[aria-label="Refresh Data"]');
+                                    if (refreshBtn) refreshBtn.click();
+                                })
+                                .catch(err => console.error("Error cancelling download:", err));
                         }
                     }
                 });
-                
-                console.log('Cancel buttons setup complete');
-            }, 1000);  // Wait 1 second for DOM to be ready
-        }
-        
-        // Auto refresh setup
-        let refreshInterval = null;
-        
-        function startAutoRefresh() {
-            refreshInterval = setInterval(() => {
-                const refreshBtn = document.getElementById('refresh-button');
-                if (refreshBtn) refreshBtn.click();
-            }, 5000); // Refresh every 5 seconds
-        }
-        
-        // Setup when DOM is loaded
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('DOM loaded, setting up functionality');
-            setupCancelButtons();
-            startAutoRefresh();
-        });
-        
-        // Backup in case DOMContentLoaded already fired
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            console.log('DOM already loaded, setting up functionality now');
-            setupCancelButtons();
-            startAutoRefresh();
-        }
-        
-        // Cleanup on page unload
-        window.addEventListener('unload', () => {
-            if (refreshInterval) clearInterval(refreshInterval);
-        });
+            }
+            
+            // Set up cancel handler
+            setupCancelHandler();
+        })();
         </script>
         """)
         
-    return download_history
+    return system_info, active_downloads, download_history
 
 # JavaScript for auto-refresh and cancel functionality
 def js_autorefresh(interval):
