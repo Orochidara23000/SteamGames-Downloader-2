@@ -1469,8 +1469,8 @@ def create_gradio_interface():
                         
                         # Replace steamcmd_install_btn.click with:
                         verify_btn.click(
-                            fn=verify_steamcmd,
-                            inputs=[],
+                            fn=simple_verify_wrapper,
+                            inputs=None,
                             outputs=[steamcmd_status]
                         )
                         
@@ -1889,11 +1889,15 @@ def diagnose_environment():
         logger.error(f"Error during diagnostics: {str(e)}", exc_info=True)
         return f"Error running diagnostics: {str(e)}"
         
-def verify_steamcmd():
-    """Simple test function for SteamCMD verification."""
-    # Just return a simple status without doing any checks
-    logger.info("verify_steamcmd called - this is a simple test response")
-    return "SteamCMD verification test response - no actual verification performed"
+def simple_verify_wrapper():
+    """Simple wrapper for verify_steamcmd to debug the button click."""
+    print("verify button clicked - calling simple wrapper")
+    try:
+        # Just return a static string for now
+        return "SteamCMD verification attempted - using simple wrapper"
+    except Exception as e:
+        print(f"Error in simple wrapper: {str(e)}")
+        return f"Error: {str(e)}"
 
 # Call this on startup
 if __name__ == "__main__":
