@@ -1210,193 +1210,139 @@ def create_download_games_tab():
     return game_input, check_button, download_btn, game_status
 
 def create_downloads_tab():
-    """Create a simplified text-based Downloads tab with real-time progress updates."""
+    """Create a basic Downloads tab that shows raw download status data for debugging."""
     with gr.Tab("Downloads"):
-        gr.Markdown("## Downloads")
+        gr.Markdown("## Downloads Status")
         
-        # Create a simple function to format all download information as text
-        def get_downloads_text():
-            text_parts = []
-            
-            # System info section
-            text_parts.append("### System Information")
-            text_parts.append(f"Platform: {platform.system()} {platform.release()}")
-            
-            # Download directory and space info
-            download_dir = get_default_download_location()
-            text_parts.append(f"Download Directory: {download_dir}")
-            
+        # Debug function to get raw download status and display it
+        def get_downloads_debug_text():
             try:
-                total, used, free = shutil.disk_usage(download_dir)
-                text_parts.append(f"Disk Space: {format_size(free)} free of {format_size(total)}")
+                # Print debug info to console
+                print("Fetching download status...")
+                
+                # Get the raw status data
+                status_data = get_download_status()
+                print(f"Raw status data: {status_data}")
+                
+                # Start building our display text
+                text_parts = []
+                
+                # Basic system info
+                text_parts.append("### System Information")
+                text_parts.append(f"Platform: {platform.system()} {platform.release()}")
+                download_dir = get_default_download_location()
+                text_parts.append(f"Download Directory: {download_dir}")
+                text_parts.append("")
+                
+                # Raw status data for debugging
+                text_parts.append("### Raw Download Status Data (Debug)")
+                
+                if not status_data:
+                    text_parts.append("No download status data available")
+                else:
+                    # Active downloads count
+                    active = status_data.get('active', [])
+                    text_parts.append(f"Active Downloads Count: {len(active)}")
+                    
+                    # History count
+                    history = status_data.get('history', [])
+                    text_parts.append(f"History Items Count: {len(history)}")
+                    
+                    # Show raw active downloads data
+                    text_parts.append("\n**Active Downloads Raw Data:**")
+                    if not active:
+                        text_parts.append("No active downloads")
+                    else:
+                        for i, download in enumerate(active, 1):
+                            text_parts.append(f"Download #{i}:")
+                            for key, value in download.items():
+                                # Skip process object as it's not displayable
+                                if key == 'process':
+                                    text_parts.append(f"  {key}: <Process object>")
+                                else:
+                                    text_parts.append(f"  {key}: {value}")
+                            text_parts.append("---")
+                    
+                    # Show history data
+                    text_parts.append("\n**History Raw Data:**")
+                    if not history:
+                        text_parts.append("No download history")
+                    else:
+                        for i, item in enumerate(history, 1):
+                            text_parts.append(f"History Item #{i}:")
+                            for key, value in item.items():
+                                text_parts.append(f"  {key}: {value}")
+                            text_parts.append("---")
+                
+                # Join all parts and return
+                return "\n".join(text_parts)
+                
             except Exception as e:
-                text_parts.append(f"Disk Space: Error retrieving ({str(e)})")
-            
-            text_parts.append("\n")  # Add spacing
-            
-            # Active downloads section
-            text_parts.append("### Currently Downloading")
-            
-            status_data = get_download_status()
-            active = status_data.get('active', [])
-            
-            if not active:
-                text_parts.append("No active downloads")
-            else:
-                for i, download in enumerate(active, 1):
-                    # Skip invalid entries
-                    if not all(k in download for k in ['id', 'name']):
-                        continue
-                        
-                    download_id = download.get('id', 'Unknown')
-                    game_name = download.get('name', 'Unknown Game')
-                    
-                    # Get progress info with fallbacks for missing data
-                    progress = download.get('progress', 'N/A')
-                    if isinstance(progress, (int, float)):
-                        progress_str = f"{progress:.1f}%"
-                    else:
-                        progress_str = str(progress)
-                        
-                    speed = download.get('speed', 'N/A')
-                    eta = download.get('eta', 'Unknown')
-                    status = download.get('status', 'Starting')
-                    
-                    # Check if process is still running
-                    process = download.get('process')
-                    if process and process.poll() is not None:
-                        if process.returncode == 0:
-                            status = 'Completed'
-                        else:
-                            status = f'Error (code: {process.returncode})'
-                    
-                    # Add a nicer progress bar representation
-                    if isinstance(progress, (int, float)) and 0 <= progress <= 100:
-                        bar_length = 20
-                        completed = int(bar_length * progress / 100)
-                        progress_bar = f"[{'█' * completed}{' ' * (bar_length - completed)}]"
-                    else:
-                        progress_bar = "[                    ]"
-                    
-                    # Format the download entry
-                    text_parts.append(f"Download #{i}: {game_name} (ID: {download_id})")
-                    text_parts.append(f"Status: {status}")
-                    text_parts.append(f"Progress: {progress_bar} {progress_str}")
-                    text_parts.append(f"Speed: {speed} | ETA: {eta}")
-                    
-                    # Add any download logs for this specific download
-                    if 'logs' in download and download['logs']:
-                        text_parts.append("Recent output:")
-                        for log_line in download['logs'][-5:]:  # Show last 5 log lines
-                            text_parts.append(f"  > {log_line}")
-                    
-                    # Add cancel instructions
-                    text_parts.append(f"To cancel, run this command: cancel_download('{download_id}')")
-                    text_parts.append("---")
-            
-            text_parts.append("\n")  # Add spacing
-            
-            # Download history section
-            text_parts.append("### Download History")
-            
-            history = status_data.get('history', [])
-            if not history:
-                text_parts.append("No download history")
-            else:
-                for i, item in enumerate(history, 1):
-                    game_name = item.get('name', 'Unknown Game')
-                    
-                    # Format size
-                    size = item.get('size', 'Unknown')
-                    if isinstance(size, (int, float)) and size > 0:
-                        size = format_size(size)
-                        
-                    # Format completion time
-                    completed = item.get('completed', 'Unknown')
-                    if isinstance(completed, (int, float)):
-                        try:
-                            completed = datetime.fromtimestamp(completed).strftime("%Y-%m-%d %H:%M")
-                        except:
-                            completed = str(completed)
-                        
-                    # Format duration
-                    duration = item.get('duration', 'Unknown')
-                    if isinstance(duration, (int, float)):
-                        minutes, seconds = divmod(duration, 60)
-                        hours, minutes = divmod(minutes, 60)
-                        duration = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
-                        
-                    status = item.get('status', 'Unknown')
-                    
-                    # Format the history entry
-                    text_parts.append(f"{i}. {game_name}")
-                    text_parts.append(f"   Size: {size} | Completed: {completed}")
-                    text_parts.append(f"   Duration: {duration} | Status: {status}")
-                    
-                    # Add any final logs for this download if available
-                    if 'logs' in item and item['logs']:
-                        text_parts.append("   Final output:")
-                        for log_line in item['logs'][-3:]:  # Show last 3 log lines
-                            text_parts.append(f"     > {log_line}")
-                    
-                    text_parts.append("   ---")
-            
-            # Join all parts with newlines
-            return "\n".join(text_parts)
+                import traceback
+                error_text = traceback.format_exc()
+                print(f"Error in get_downloads_debug_text: {str(e)}")
+                print(error_text)
+                
+                # Return the error information in the display
+                return f"""
+                ### Error Getting Download Status
+                
+                An error occurred while getting download status:
+                {str(e)}
+                
+                Traceback:
+                {error_text}
+                
+                Please check your console for more information.
+                """
         
-        # Create a function to cancel downloads that users can call
-        def cancel_download_wrapper(download_id):
+        # Add a manual refresh button
+        refresh_btn = gr.Button("Refresh Download Status")
+        
+        # Add the simple debug display
+        downloads_display = gr.Textbox(
+            label="Download Status (Debug View)",
+            value="Click 'Refresh Download Status' to see download information...",
+            lines=25,
+            max_lines=25,
+            interactive=False
+        )
+        
+        # Connect the refresh button
+        refresh_btn.click(
+            fn=get_downloads_debug_text,
+            inputs=[],
+            outputs=[downloads_display]
+        )
+        
+        # Add helper instructions
+        gr.Markdown("""
+        > **Troubleshooting:**
+        > 1. Click the 'Refresh Download Status' button to manually update the status
+        > 2. Check if any download data appears in the text box
+        > 3. If no data appears, there might be an issue with how downloads are being tracked
+        """)
+        
+        # Also add a simple cancel function
+        with gr.Row():
+            cancel_id_input = gr.Textbox(label="Download ID to Cancel")
+            cancel_btn = gr.Button("Cancel Download")
+        
+        cancel_result = gr.Textbox(label="Cancel Result", interactive=False)
+        
+        def cancel_download_ui(download_id):
             try:
+                print(f"Attempting to cancel download: {download_id}")
                 result = cancel_download(download_id)
                 return f"Download {download_id} canceled. Result: {result}"
             except Exception as e:
                 return f"Failed to cancel download {download_id}: {str(e)}"
         
-        # Register the cancel function
-        if not hasattr(globals(), 'cancel_download_ui'):
-            globals()['cancel_download_ui'] = cancel_download_wrapper
-        
-        # Add the downloads status display with auto-refresh
-        downloads_display = gr.Textbox(
-            label="Download Status",
-            value=get_downloads_text(),
-            lines=25,
-            max_lines=25,
-            interactive=False,
-            every=2  # Update every 2 seconds
+        cancel_btn.click(
+            fn=cancel_download_ui,
+            inputs=[cancel_id_input],
+            outputs=[cancel_result]
         )
-        
-        # Monospace font for better text formatting
-        gr.HTML("""
-        <style>
-        .download-status textarea {
-            font-family: 'Courier New', monospace !important;
-            white-space: pre;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        </style>
-        <script>
-        // Apply monospace class to the download status textbox
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                const textareas = document.querySelectorAll('textarea');
-                for (const textarea of textareas) {
-                    if (textarea.placeholder.includes('Download Status')) {
-                        textarea.closest('.gradio-container').classList.add('download-status');
-                    }
-                }
-            }, 1000);
-        });
-        </script>
-        """)
-        
-        # Add a small info text
-        gr.Markdown("""
-        > **Note:** The status updates automatically every 2 seconds. 
-        > To cancel a download, open the browser console (F12) and type: `cancel_download_ui("download-id")` 
-        > using the download ID shown in the status above.
-        """)
 
     return downloads_display
 
