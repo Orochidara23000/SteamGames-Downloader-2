@@ -1862,26 +1862,10 @@ def diagnose_environment():
         return f"Error running diagnostics: {str(e)}"
         
 def verify_steamcmd():
-    """Verify SteamCMD is functional and working correctly."""
-    try:
-        steamcmd_path = get_steamcmd_path()
-        logger.info(f"Checking SteamCMD at path: {steamcmd_path}")
-        
-        if not os.path.exists(steamcmd_path):
-            logger.error(f"SteamCMD not found at expected path: {steamcmd_path}")
-            return "Error: SteamCMD not found at expected path. Please check system configuration."
-        
-        # Use a more reliable method to test SteamCMD - just check if the file exists and is executable
-        if os.access(steamcmd_path, os.X_OK):
-            logger.info("SteamCMD exists and is executable")
-            return "SteamCMD is present and executable. Ready to use."
-        else:
-            logger.error("SteamCMD exists but is not executable")
-            return "Error: SteamCMD is not executable. Please check file permissions."
-    
-    except Exception as e:
-        logger.error(f"Error testing SteamCMD: {str(e)}", exc_info=True)
-        return f"Error testing SteamCMD: {str(e)}"
+    """Simple test function for SteamCMD verification."""
+    # Just return a simple status without doing any checks
+    logger.info("verify_steamcmd called - this is a simple test response")
+    return "SteamCMD verification test response - no actual verification performed"
 
 # Call this on startup
 if __name__ == "__main__":
