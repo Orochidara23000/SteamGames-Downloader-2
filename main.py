@@ -1423,6 +1423,14 @@ def create_downloads_tab():
     # Return None since we don't have refresh buttons to return
     return None, None
 
+# At the top of your file, add a print statement that will show in server logs
+print("Loading application with modified Setup tab")
+
+def simple_test_function():
+    """Ultra simple test function that just returns a string."""
+    print("simple_test_function was called!")  # This will show in server logs
+    return "Button was clicked successfully!"
+
 def create_gradio_interface():
     """Create the main Gradio interface with all tabs."""
     with gr.Blocks(title="Steam Game Downloader", theme=gr.themes.Soft()) as app:
@@ -1432,6 +1440,26 @@ def create_gradio_interface():
         with gr.Tabs():
             with gr.Tab("Setup"):
                 gr.Markdown("## System Setup")
+                
+                test_btn = gr.Button("Test Button")
+                test_result = gr.Textbox(label="Test Result", value="Click the button to test")
+                
+                # Connect the button directly
+                test_btn.click(
+                    fn=simple_test_function,
+                    inputs=None,
+                    outputs=test_result
+                )
+                
+                # Add a second test with lambda function
+                test_btn2 = gr.Button("Second Test Button")
+                test_result2 = gr.Textbox(label="Second Test Result")
+                
+                test_btn2.click(
+                    fn=lambda: "Direct lambda response",
+                    inputs=None,
+                    outputs=test_result2
+                )
                 
                 with gr.Row():
                     with gr.Column():
