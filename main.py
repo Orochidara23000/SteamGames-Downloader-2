@@ -25,6 +25,7 @@ import math
 import concurrent.futures
 import socket
 import urllib.request
+import traceback
 
 # Set up logging to both file and stdout
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
@@ -1058,11 +1059,28 @@ def create_download_games_tab():
             """Check game details and return preview information."""
             try:
                 if not input_text:
-                    # Return just the two expected values: app_info and status message
                     return {}, "Please enter a game URL, ID, or title"
                 
                 print(f"Checking game: {input_text}")  # Debug print
-                appid, app_info = parse_game_input(input_text)
+                
+                # Fix the unpacking issue - store the result in a variable first
+                result = parse_game_input(input_text)
+                
+                # Check what was returned and handle appropriately
+                if isinstance(result, tuple):
+                    if len(result) == 2:
+                        appid, app_info = result
+                    else:
+                        # If it returns something else, handle that case
+                        print(f"parse_game_input returned unexpected format: {result}")
+                        return {}, "❌ Error: Unexpected result format from game lookup"
+                else:
+                    # If it's not a tuple, it might be the appid directly or an error
+                    print(f"parse_game_input returned: {result}")
+                    if isinstance(result, str) and "Error" in result:
+                        return {}, f"❌ {result}"
+                    appid = result
+                    app_info = get_game_info(appid) if appid else {}
                 
                 if not appid or not app_info:
                     return {}, "❌ Game not found. Please check the input and try again."
@@ -1071,7 +1089,7 @@ def create_download_games_tab():
                 game_data = app_info.get('data', {})
                 name = game_data.get('name', 'Unknown Game')
                 
-                # Process additional info for display (but don't return them directly)
+                # Process additional info
                 description = game_data.get('short_description', 'No description available')
                 header_image = game_data.get('header_image', None)
                 
@@ -1081,10 +1099,10 @@ def create_download_games_tab():
                     size = get_game_size(appid)
                     if size:
                         size_text = format_size(size)
-                except:
-                    pass
+                except Exception as size_error:
+                    print(f"Error getting game size: {str(size_error)}")
                 
-                # Update the game_info object to include all the extra data
+                # Update the game_info object
                 app_info['ui_data'] = {
                     'header_image': header_image,
                     'name': name,
@@ -1092,11 +1110,12 @@ def create_download_games_tab():
                     'size_text': size_text
                 }
                 
-                # Return only the two expected values
                 return app_info, f"✅ Game found: {name} (AppID: {appid})"
             
             except Exception as e:
-                print(f"Error checking game: {str(e)}")  # Debug print
+                import traceback
+                traceback.print_exc()  # Print full traceback for debugging
+                print(f"Error checking game: {str(e)}")
                 return {}, f"❌ Error: {str(e)}"
         
         def handle_download(game_input_text, username_val, password_val, guard_code_val, 
