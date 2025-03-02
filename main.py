@@ -1219,30 +1219,78 @@ def create_download_games_tab():
                 logger.error(f"Error extracting App ID: {e}")
                 return input_text.strip()
 
-        def check_game_status(input_text):
-            """Check if a game is installed and return its status - no Steam API call"""
-            if not input_text:
-                return "Please enter a valid App ID or game URL"
+        def check_game_status(game_input):
+            logging.info(f"Checking game status for input: {game_input}")
             
-            try:
-                # Extract AppID from input (URL or text)
-                appid = extract_appid_from_input(input_text)
-                logger.info(f"Extracted AppID: {appid} from input: {input_text}")
-                
-                # Instead of calling the API, we'll just return basic information
-                # This avoids any API calls that might hang
-                result = f"### Game with AppID: {appid}\n"
-                result += f"AppID: {appid}\n"
-                result += f"Info: Unable to retrieve game details from Steam API.\n"
-                result += f"Note: Game info retrieval has been disabled to avoid hanging issues.\n"
-                result += f"\nTo download this game, use the Download button below."
-                
-                logger.info(f"Returning basic info for AppID: {appid} without API call")
-                return result
+            # Extract AppID from input
+            appid = parse_game_input(game_input)
+            if not appid:
+                return f"Error: Unable to extract AppID from input: {game_input}"
             
-            except Exception as e:
-                logger.error(f"Error in check_game_status: {e}", exc_info=True)
-                return f"Error checking game: {str(e)}"
+            logging.info(f"Successfully extracted AppID: {appid}")
+            
+            # Remove any existing configuration that disables API calls
+            enable_api_calls = True  # Force enable API calls
+            
+            if enable_api_calls:
+                try:
+                    # Check if app exists via Steam API
+                    url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
+                    logging.info(f"Querying Steam API: {url}")
+                    
+                    response = requests.get(url, timeout=5)  # Reduced timeout
+                    
+                    if not response.ok:
+                        logging.error(f"Steam API request failed with status: {response.status_code}")
+                        return f"Error: Steam API request failed with status: {response.status_code}"
+                    
+                    data = response.json()
+                    
+                    if not data or not data.get(appid):
+                        logging.error(f"Invalid response from Steam API for App ID {appid}")
+                        return f"Error: Invalid response from Steam API for AppID: {appid}"
+                    
+                    if not data.get(appid, {}).get('success', False):
+                        logging.warning(f"Game not found for App ID: {appid}")
+                        return f"Error: Game not found on Steam (AppID: {appid})"
+                    
+                    game_data = data[appid]['data']
+                    game_name = game_data.get('name', 'Unknown Game')
+                    is_free = game_data.get('is_free', False)
+                    
+                    # Check if game is installed
+                    installed = False
+                    try:
+                        installed = is_game_installed(appid)
+                    except Exception as e:
+                        logging.warning(f"Error checking if game is installed: {str(e)}")
+                    
+                    status_msg = f"Game: {game_name}\nAppID: {appid}\nFree to Play: {'Yes' if is_free else 'No'}\nInstalled: {'Yes' if installed else 'No'}\n"
+                    status_msg += f"Description: {game_data.get('short_description', 'No description available')}"
+                    
+                    logging.info(f"Game status check successful for {game_name} (AppID: {appid})")
+                    return status_msg
+                    
+                except requests.exceptions.Timeout:
+                    logging.error(f"Timeout while validating App ID {appid}")
+                    return f"Error: Timeout while connecting to Steam API for AppID: {appid}"
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Request error while validating App ID {appid}: {str(e)}")
+                    return f"Error: Request error for AppID {appid}: {str(e)}"
+                except json.JSONDecodeError:
+                    logging.error(f"Invalid JSON response from Steam API for App ID {appid}")
+                    return f"Error: Invalid response format from Steam API for AppID: {appid}"
+                except Exception as e:
+                    logging.error(f"Error checking game status for AppID {appid}: {str(e)}", exc_info=True)
+                    return f"Error checking game status: {str(e)}"
+            else:
+                # This is the message you're seeing, so we need to modify this branch
+                game_name = f"Game with AppID: {appid}"
+                status_msg = f"### {game_name}\nAppID: {appid}\n"
+                status_msg += "Info: Unable to retrieve game details from Steam API.\n"
+                status_msg += "Note: Game info retrieval has been disabled to avoid hanging issues.\n\n"
+                status_msg += "To download this game, use the Download button below."
+                return status_msg
         
         # IMPORTANT: Find ALL instances where check_game_btn.click is defined
         # and make sure they're consistent
