@@ -1929,3 +1929,42 @@ try:
     logger.info("Steam store website is reachable")
 except Exception as e:
     logger.error(f"Cannot reach Steam store: {str(e)}")
+
+def check_game(game_id):
+    details = get_game_details(game_id)
+    
+    if not details["success"]:
+        return (
+            gr.update(visible=False),  # Hide game details row
+            "",  # Game title
+            "",  # Game description
+            [],  # Game metadata
+            None,  # Game image
+            f"Error: {details['error']}"  # Download status
+        )
+    
+    game_info = details["game_info"]
+    
+    # Format metadata for display
+    metadata = [
+        ["App ID", details["appid"]],
+        ["Free Game", "Yes" if game_info.get("is_free", False) else "No"],
+        ["Release Date", game_info.get("release_date", "Unknown")],
+        ["Developer", ", ".join(game_info.get("developers", ["Unknown"]))],
+        ["Publisher", ", ".join(game_info.get("publishers", ["Unknown"]))],
+        ["Genres", ", ".join(game_info.get("genres", ["Unknown"]))],
+        ["Metacritic", game_info.get("metacritic", "N/A")],
+        ["Platforms", ", ".join([p for p, v in game_info.get("platforms", {}).items() if v])]
+    ]
+    
+    # Get image URL or use placeholder
+    image_url = game_info.get("header_image", None)
+    
+    return (
+        gr.update(visible=True),  # Show game details row
+        game_info.get("name", "Unknown Game"),  # Game title
+        game_info.get("description", "No description available"),  # Game description
+        metadata,  # Game metadata
+        image_url,  # Game image
+        f"Game found: {game_info.get('name', 'Unknown Game')} (AppID: {details['appid']})"  # Download status
+    )
