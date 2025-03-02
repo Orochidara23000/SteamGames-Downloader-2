@@ -886,27 +886,24 @@ def download_game(username, password, guard_code, anonymous, game_input, validat
         return f"Error: {str(e)}"
 
 def queue_download(username, password, guard_code, anonymous, game_input, validate=True):
-    """Add a download to the queue or start it immediately if no downloads are active."""
-    logger.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
+    logging.info(f"Queueing download for game: {game_input} (Anonymous: {anonymous})")
     
-    # Validate login inputs for non-anonymous downloads
     if not anonymous and (not username or not password):
         error_msg = "Error: Username and password are required for non-anonymous downloads."
-        logger.error(error_msg)
+        logging.error(error_msg)
         return error_msg
     
-    # Parse the game input to get an AppID
     appid = parse_game_input(game_input)
     if not appid:
         error_msg = "Invalid game ID or URL. Please enter a valid Steam game ID or store URL."
-        logger.error(error_msg)
+        logging.error(error_msg)
         return error_msg
     
-    # Skip API validation which causes hanging
-    logger.info(f"Proceeding with download for AppID: {appid} without API validation")
+    # Skip the API validation to avoid hanging
+    # is_valid, game_info = validate_appid(appid)  # This line is likely causing the hang
     
-    # Assume all games need login unless specified anonymous
-    # (Free games will be handled by the download_game function)
+    # Instead, use a simplified approach
+    game_name = f"Game with AppID: {appid}"
     
     # Check if we can start a new download immediately or need to queue
     with queue_lock:
@@ -918,20 +915,15 @@ def queue_download(username, password, guard_code, anonymous, game_input, valida
             )
             thread.daemon = True
             thread.start()
-            logger.info(f"Started download thread for AppID: {appid}")
-            return f"Started download for game with AppID: {appid}"
+            return f"Started download for {game_name} (AppID: {appid})"
         else:
             # Add to queue
             download_queue.append({
                 "function": download_game,
-                "args": (username, password, guard_code, anonymous, appid, validate),
-                "appid": appid,
-                "name": f"Game {appid}",
-                "queued_time": datetime.now()
+                "args": (username, password, guard_code, anonymous, appid, validate)
             })
             position = len(download_queue)
-            logger.info(f"Queued download for AppID: {appid} at position {position}")
-            return f"Download for game with AppID: {appid} queued at position {position}"
+            return f"Download for {game_name} (AppID: {appid}) queued at position {position}"
 
 def get_download_status():
     """Get the current status of all downloads and queue for display in the UI."""
