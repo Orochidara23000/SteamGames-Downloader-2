@@ -974,7 +974,7 @@ def get_game_details(game_input):
 # ========================
 
 def create_download_games_tab():
-    """Create the Download Games tab with simplified, reliable functionality."""
+    """Create the Download Games tab with maximally simplified login implementation."""
     with gr.Tab("Download Games"):
         gr.Markdown("## Download Steam Games")
         
@@ -995,147 +995,48 @@ def create_download_games_tab():
                 # Combined game preview using HTML
                 game_preview_html = gr.HTML(label="Game Preview")
                 
-                # Login Section with JavaScript toggle
+                # Super simplified login section
                 gr.Markdown("### Steam Account Settings")
                 
-                # Login choice
-                anonymous_checkbox = gr.Checkbox(
-                    label="Use Anonymous Login (Free Games Only)", 
-                    value=True,
-                    info="Uncheck for paid games requiring Steam account"
-                )
-                
-                # HTML container for login options with built-in JavaScript
-                login_container = gr.HTML("""
-                <div id="login-container">
-                    <div id="anonymous-section" style="display: block;">
-                        <p><strong>Using anonymous login - only free games can be downloaded.</strong></p>
-                    </div>
-                    
-                    <div id="account-section" style="display: none; margin-top: 15px;">
-                        <p><strong>Enter your Steam credentials:</strong></p>
-                        <div style="margin-bottom: 10px;">
-                            <label for="steam-username" style="display: block; margin-bottom: 5px; font-weight: bold;">Steam Username</label>
-                            <input type="text" id="steam-username" class="gr-input gr-text-input" placeholder="Your Steam username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                        </div>
-                        
-                        <div style="margin-bottom: 10px;">
-                            <label for="steam-password" style="display: block; margin-bottom: 5px; font-weight: bold;">Steam Password</label>
-                            <input type="password" id="steam-password" class="gr-input gr-text-input" placeholder="Your Steam password" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                        </div>
-                        
-                        <div style="margin-bottom: 10px;">
-                            <label for="steam-guard" style="display: block; margin-bottom: 5px; font-weight: bold;">Steam Guard Code (if enabled)</label>
-                            <input type="text" id="steam-guard" class="gr-input gr-text-input" placeholder="Leave empty if not needed" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                        </div>
-                    </div>
-                </div>
-
-                <script>
-                    // Function to toggle login sections
-                    function toggleLoginSections() {
-                        const checkbox = document.querySelector('input[type="checkbox"][aria-label="Use Anonymous Login (Free Games Only)"]');
-                        if (!checkbox) return;
-                        
-                        const anonymousSection = document.getElementById('anonymous-section');
-                        const accountSection = document.getElementById('account-section');
-                        
-                        if (checkbox.checked) {
-                            anonymousSection.style.display = 'block';
-                            accountSection.style.display = 'none';
-                        } else {
-                            anonymousSection.style.display = 'none';
-                            accountSection.style.display = 'block';
-                        }
-                    }
-                    
-                    // Set up listener for checkbox changes
-                    function setupCheckboxListener() {
-                        const checkbox = document.querySelector('input[type="checkbox"][aria-label="Use Anonymous Login (Free Games Only)"]');
-                        if (!checkbox) {
-                            // Try again soon if checkbox not found
-                            setTimeout(setupCheckboxListener, 500);
-                            return;
-                        }
-                        
-                        checkbox.addEventListener('change', toggleLoginSections);
-                        console.log("Login checkbox listener set up");
-                    }
-                    
-                    // Initialize when DOM is loaded
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', setupCheckboxListener);
-                    } else {
-                        setupCheckboxListener();
-                    }
-                </script>
+                # Instructions for login
+                gr.Markdown("""
+                **Login Instructions:**
+                - For free games: Use Anonymous Login (keep checkbox checked, leave credential fields empty)
+                - For paid games: Uncheck Anonymous Login AND provide your Steam credentials below
                 """)
                 
-                # Validate download checkbox (standard UI element)
+                # Simple checkbox
+                anonymous_login = gr.Checkbox(
+                    label="Use Anonymous Login (for free games only)", 
+                    value=True,
+                    info="⚠️ Make sure to fill in the credentials below if this is unchecked"
+                )
+                
+                # Always visible credential fields
+                username = gr.Textbox(
+                    label="Steam Username (required for paid games)",
+                    placeholder="Enter only if Anonymous Login is unchecked"
+                )
+                
+                password = gr.Textbox(
+                    label="Steam Password (required for paid games)",
+                    type="password",
+                    placeholder="Enter only if Anonymous Login is unchecked"
+                )
+                
+                guard_code = gr.Textbox(
+                    label="Steam Guard Code (if enabled)",
+                    placeholder="Leave empty if not needed or using Anonymous Login"
+                )
+                
                 validate_download = gr.Checkbox(
                     label="Validate Download", 
                     value=True,
                     info="Verify game files after download (recommended)"
                 )
                 
-                # Hidden fields to store credential values
-                username_hidden = gr.Textbox(visible=False)
-                password_hidden = gr.Textbox(visible=False)
-                guard_code_hidden = gr.Textbox(visible=False)
-                
-                # Download button and status
                 download_btn = gr.Button("Download Game", variant="primary")
                 download_status = gr.Markdown("")
-                
-                # JavaScript to capture credentials before download
-                gr.HTML("""
-                <script>
-                    function captureCredentials() {
-                        const downloadBtn = document.querySelector('button:contains("Download Game")');
-                        if (!downloadBtn) {
-                            setTimeout(captureCredentials, 500);
-                            return;
-                        }
-                        
-                        downloadBtn.addEventListener('click', () => {
-                            const anonymousCheck = document.querySelector('input[type="checkbox"][aria-label="Use Anonymous Login (Free Games Only)"]');
-                            const isAnonymous = anonymousCheck && anonymousCheck.checked;
-                            
-                            if (!isAnonymous) {
-                                const username = document.getElementById('steam-username').value;
-                                const password = document.getElementById('steam-password').value;
-                                const guardCode = document.getElementById('steam-guard').value;
-                                
-                                // Find the hidden input fields
-                                const usernameHidden = document.querySelector('input[data-testid="username_hidden"]');
-                                const passwordHidden = document.querySelector('input[data-testid="password_hidden"]');
-                                const guardCodeHidden = document.querySelector('input[data-testid="guard_code_hidden"]');
-                                
-                                // Update the hidden fields
-                                if (usernameHidden) usernameHidden.value = username;
-                                if (passwordHidden) passwordHidden.value = password;
-                                if (guardCodeHidden) guardCodeHidden.value = guardCode;
-                                
-                                // Trigger change events
-                                if (usernameHidden) usernameHidden.dispatchEvent(new Event('input'));
-                                if (passwordHidden) passwordHidden.dispatchEvent(new Event('input'));
-                                if (guardCodeHidden) guardCodeHidden.dispatchEvent(new Event('input'));
-                                
-                                console.log("Credentials captured for download");
-                            }
-                        });
-                        
-                        console.log("Download button listener set up");
-                    }
-                    
-                    // Initialize when DOM is loaded
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', captureCredentials);
-                    } else {
-                        captureCredentials();
-                    }
-                </script>
-                """)
         
         # Define function handlers
         def handle_game_check(input_text):
@@ -1203,7 +1104,7 @@ def create_download_games_tab():
                             {size_text}
                         </div>
                         <div style="display: inline-block; background: {is_free and '#3d8f3d' or '#8f3d3d'}; color: white; padding: 8px 12px; border-radius: 4px; font-weight: bold;">
-                            {is_free and '✓ Free Game' or '💰 Paid Game'}
+                            {is_free and '✓ Free Game (can use Anonymous Login)' or '💰 Paid Game (requires Steam Account)'}
                         </div>
                     </div>
                 </div>
@@ -1219,14 +1120,10 @@ def create_download_games_tab():
         
         def handle_download(game_input_text, anonymous_val, username_val, password_val, guard_code_val, 
                            validate_val, game_info_json):
-            """Handle the download button click with JavaScript-provided credentials."""
+            """Handle the download button click."""
             try:
                 print(f"Download button clicked for: {game_input_text}")
-                print(f"Anonymous login: {anonymous_val}")
-                
-                if not anonymous_val:
-                    print(f"Username provided: {bool(username_val)}")
-                    print(f"Password provided: {bool(password_val)}")
+                print(f"Using anonymous login: {anonymous_val}")
                 
                 if not game_input_text:
                     return "❌ Please enter a game URL, ID, or title first."
@@ -1255,14 +1152,14 @@ def create_download_games_tab():
                     has_price = price_info and price_info.get('initial', 0) > 0
                     
                     if not is_free or has_price:
-                        return "❌ This game requires purchase. Please uncheck Anonymous Login and provide Steam credentials."
+                        return "❌ This game requires purchase. Please uncheck 'Anonymous Login' and provide Steam credentials."
                 
                 # Check login credentials when not anonymous
                 if not anonymous_val:
                     if not username_val or not username_val.strip():
-                        return "❌ Please enter your Steam username in the form."
+                        return "❌ Please enter your Steam username."
                     if not password_val or not password_val.strip():
-                        return "❌ Please enter your Steam password in the form."
+                        return "❌ Please enter your Steam password."
                 
                 # Start download
                 download_id = start_download(
@@ -1294,10 +1191,10 @@ def create_download_games_tab():
             fn=handle_download,
             inputs=[
                 game_input,
-                anonymous_checkbox,
-                username_hidden,
-                password_hidden,
-                guard_code_hidden,
+                anonymous_login,
+                username,
+                password,
+                guard_code,
                 validate_download,
                 game_info
             ],
